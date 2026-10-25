@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 启动瞬间的底色＝editorial 主题的米白，避免冷启动闪一下黑/白 -->
+    <color name="window_bg">#F9F8F6</color>
+    <color name="splash_bg">#0F6953</color>
+    <color name="brand_green">#0F6953</color>
+</resources>

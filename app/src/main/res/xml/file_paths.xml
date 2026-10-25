@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 导出备份放 external-files/export/，分享时用 FileProvider 换成 content:// -->
+    <external-files-path name="export" path="export/" />
+    <cache-path name="cache" path="." />
+</paths>

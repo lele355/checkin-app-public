@@ -1,0 +1,32 @@
+# ---------- 构建产物 ----------
+build/
+app/build/
+.gradle/
+captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# ---------- 签名文件（绝对不许入库） ----------
+keystore/
+keystore.properties
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# ---------- 本地环境 ----------
+local.properties
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# ---------- 日志与临时文件 ----------
+*.log
+*.hprof
+.tmp/
+
+# ---------- 系统 ----------
+/.vs/
