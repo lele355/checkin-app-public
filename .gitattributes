@@ -1,0 +1,20 @@
+# 换行统一：源码用 LF，Windows 脚本保留 CRLF
+#
+# 这条最要紧的是 gradlew —— 它是 shell 脚本，一旦被转成 CRLF，
+# Linux/macOS 上会报 "bad interpreter: /bin/sh^M"，CI 直接挂。
+# 只有 .gitattributes 能保证这一点，靠本地 core.autocrlf 不靠谱。
+* text=auto eol=lf
+
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.ico   binary
+*.jar   binary
+*.jks   binary
+*.keystore binary
+*.apk   binary
