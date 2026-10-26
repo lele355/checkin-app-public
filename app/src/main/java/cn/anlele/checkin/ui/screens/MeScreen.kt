@@ -42,6 +42,7 @@ import cn.anlele.checkin.ui.components.GroupHead
 import cn.anlele.checkin.ui.components.PrimaryButton
 import cn.anlele.checkin.ui.components.SecondaryButton
 import cn.anlele.checkin.ui.components.StaggerIn
+import cn.anlele.checkin.ui.components.UpdateSheet
 import cn.anlele.checkin.ui.icons.AppIcons
 import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.palette
@@ -67,6 +68,7 @@ fun MeScreen(vm: AppVm, me: MeDto, onPrefs: () -> Unit, go: (String) -> Unit) {
     var newPwd2 by remember { mutableStateOf("") }
     var savingPwd by remember { mutableStateOf(false) }
     var logoutAsk by remember { mutableStateOf(false) }
+    var updateOpen by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 26.dp),
@@ -219,6 +221,9 @@ fun MeScreen(vm: AppVm, me: MeDto, onPrefs: () -> Unit, go: (String) -> Unit) {
                     GroupHead("更多")
                     MeRow("bell", "通知设置") { go("notify") }
                     MeRow("download", "导出数据") { go("export") }
+                    // 应用商店没上架（自用邀请制），系统不会主动提示更新，
+                    // 所以更新入口得自己做。右边带上当前版本号，省得用户去「关于」里找。
+                    MeRow("rotate-ccw", "检查更新", trailing = cn.anlele.checkin.BuildConfig.VERSION_NAME) { updateOpen = true }
                     MeRow("log-out", "退出登录", danger = true) { logoutAsk = true }
                 }
             }
@@ -238,8 +243,8 @@ fun MeScreen(vm: AppVm, me: MeDto, onPrefs: () -> Unit, go: (String) -> Unit) {
                     // 注意 ICP 号用的是「-2A」（App 的号），不是网站的「-1」。
                     BeianLine("ICP 备案", "京ICP备00000000号-2A", "https://beian.miit.gov.cn/")
                     BeianLine(
-                        "公安备案", "陕公网安备61010302001655号",
-                        "https://beian.mps.gov.cn/#/query/webSearch?code=61010302001655",
+                        "公安备案", "京公网安备11000000000000号",
+                        "https://beian.mps.gov.cn/#/query/webSearch?code=11000000000000",
                     )
                     Spacer(Modifier.height(6.dp))
                     Text("自用小站 · 仅限受邀成员", fontSize = 11.sp, color = p.textWeak)
@@ -258,6 +263,10 @@ fun MeScreen(vm: AppVm, me: MeDto, onPrefs: () -> Unit, go: (String) -> Unit) {
             onConfirm = { logoutAsk = false; vm.logout() },
             onDismiss = { logoutAsk = false },
         )
+    }
+
+    if (updateOpen) {
+        UpdateSheet(vm, onClose = { updateOpen = false })
     }
 }
 
@@ -300,7 +309,13 @@ private fun DataGrid(me: MeDto, go: (String) -> Unit) {
 }
 
 @Composable
-private fun MeRow(icon: String, label: String, danger: Boolean = false, onClick: () -> Unit) {
+private fun MeRow(
+    icon: String,
+    label: String,
+    danger: Boolean = false,
+    trailing: String? = null,
+    onClick: () -> Unit,
+) {
     val p = palette
     val tint = if (danger) androidx.compose.ui.graphics.Color(0xFFC0392B) else p.textSub
     Row(
@@ -314,6 +329,10 @@ private fun MeRow(icon: String, label: String, danger: Boolean = false, onClick:
             color = if (danger) androidx.compose.ui.graphics.Color(0xFFC0392B) else p.text,
             modifier = Modifier.weight(1f),
         )
+        if (trailing != null) {
+            Text(trailing, fontSize = 11.5.sp, color = p.textWeak)
+            Spacer(Modifier.width(6.dp))
+        }
         Icon(AppIcons["chevron-right"], null, Modifier.size(15.dp), tint = p.textWeak)
     }
 }

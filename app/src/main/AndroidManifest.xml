@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 引导用户把电池策略设为「无限制」——国产 ROM 没这一步，闹钟会被夜间冻结 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- App 内检查更新：下载完 APK 后拉起系统安装器。没有它，Intent 会直接抛异常 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".App"
