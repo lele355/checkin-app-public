@@ -404,12 +404,31 @@ data class CourseDto(
 @Serializable
 data class PeriodSlotDto(val start: String = "", val end: String = "")
 
+/** 一个学期（列表项） */
+@Serializable
+data class SemesterDto(
+    val id: Int = 0,
+    val name: String = "",
+    val startDate: String = "",
+    val courseCount: Int = 0,
+    val isCurrent: Boolean = false,
+)
+
+@Serializable
+data class SemesterListDto(
+    val items: List<SemesterDto> = emptyList(),
+    val currentId: Int = 0,
+)
+
 @Serializable
 data class CoursesPageDto(
     val items: List<CourseDto> = emptyList(),
     val periods: List<PeriodSlotDto> = emptyList(),
     val semesterStart: String = "",
     val semesterConfigured: Boolean = false,
+    /** 当前学期 id / 名字（顶部要显示，学期弹层也要知道自己是谁） */
+    val semesterId: Int = 0,
+    val semesterName: String = "",
     val currentWeek: Int = 1,
     val todayWeekday: Int = 1,
 )

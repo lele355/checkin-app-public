@@ -54,6 +54,7 @@ object Repo {
         val color: String = "",
     )
     @Serializable data class SlotReq(val s: String, val e: String)
+    @Serializable data class SemesterReq(val name: String = "", val startDate: String = "")
     @Serializable data class CourseSettingsReq(val semesterStart: String? = null, val periods: List<SlotReq>? = null)
     @Serializable data class AnnivReq(val title: String, val date: String, val repeatYearly: Boolean = true, val note: String = "")
     @Serializable data class ContentReq(val content: String)
@@ -157,6 +158,15 @@ object Repo {
     suspend fun createCourse(req: CourseReq): IdDto = Api.post("/courses", enc(req, CourseReq.serializer()))
     suspend fun updateCourse(id: Int, req: CourseReq): IdDto = Api.put("/courses/$id", enc(req, CourseReq.serializer()))
     suspend fun deleteCourse(id: Int) { Api.exec("DELETE", "/courses/$id") }
+    // ---------- 学期 ----------
+    suspend fun semesters(): SemesterListDto = Api.get("/courses/semesters")
+    suspend fun createSemester(name: String, startDate: String): IdDto =
+        Api.post("/courses/semesters", enc(SemesterReq(name, startDate), SemesterReq.serializer()))
+    suspend fun updateSemester(id: Int, name: String, startDate: String): IdDto =
+        Api.put("/courses/semesters/$id", enc(SemesterReq(name, startDate), SemesterReq.serializer()))
+    suspend fun switchSemester(id: Int) { Api.exec("POST", "/courses/semesters/$id/switch") }
+    suspend fun deleteSemester(id: Int) { Api.exec("DELETE", "/courses/semesters/$id") }
+
     suspend fun saveCourseSettings(req: CourseSettingsReq) {
         Api.exec("PUT", "/courses/settings", enc(req, CourseSettingsReq.serializer()))
     }

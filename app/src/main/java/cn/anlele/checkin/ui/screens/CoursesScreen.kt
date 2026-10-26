@@ -57,6 +57,7 @@ import cn.anlele.checkin.ui.components.NumberField
 import cn.anlele.checkin.ui.components.PageHeadCard
 import cn.anlele.checkin.ui.components.PrimaryButton
 import cn.anlele.checkin.ui.components.SheetDelete
+import cn.anlele.checkin.ui.components.SemesterSheet
 import cn.anlele.checkin.ui.components.SiteEmpty
 import cn.anlele.checkin.ui.components.StaggerIn
 import cn.anlele.checkin.ui.components.TinyAction
@@ -92,6 +93,7 @@ fun CoursesScreen(vm: AppVm) {
     var editorOpen by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<CourseDto?>(null) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var semesterOpen by remember { mutableStateOf(false) }
     var week by remember { mutableStateOf(0) }
     var semStart by remember { mutableStateOf("") }
 
@@ -121,6 +123,7 @@ fun CoursesScreen(vm: AppVm) {
             onPrevWeek = { if (week > 1) week-- },
             onNextWeek = { week++ },
             onSettings = { settingsOpen = true },
+            onSemester = { semesterOpen = true },
             onAdd = { editing = null; editorOpen = true },
             onEdit = { editing = it; editorOpen = true },
             vm = vm,
@@ -153,6 +156,15 @@ fun CoursesScreen(vm: AppVm) {
             scope.launch { load() }
         })
     }
+    if (semesterOpen) {
+        // 切换/新建/删除之后整个课表要重来：周次、课程、学期名全都变了
+        SemesterSheet(
+            vm = vm,
+            currentId = d?.semesterId ?: 0,
+            onClose = { semesterOpen = false },
+            onChanged = { scope.launch { load() } },
+        )
+    }
 }
 
 @Composable
@@ -164,6 +176,7 @@ private fun LazyColumnish(
     onPrevWeek: () -> Unit,
     onNextWeek: () -> Unit,
     onSettings: () -> Unit,
+    onSemester: () -> Unit,
     onAdd: () -> Unit,
     onEdit: (CourseDto) -> Unit,
     vm: AppVm,
@@ -188,6 +201,12 @@ private fun LazyColumnish(
                         Text(
                             if (start.isBlank()) "在设置里填学期起始日" else "${Dates.fmt(start, "MM-dd")} ～ ${Dates.fmt(end, "MM-dd")}",
                             fontSize = 11.sp, color = p.textWeak,
+                        )
+                        // 学期名可点：切换 / 新建 / 删除都在弹层里
+                        Text(
+                            (d?.semesterName?.ifBlank { null } ?: "选择学期") + " ›",
+                            fontSize = 11.sp, color = p.accentStrong,
+                            modifier = Modifier.clickable { onSemester() },
                         )
                     }
                     WeekArrow("›", "下一周") { onNextWeek() }
