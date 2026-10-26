@@ -198,16 +198,21 @@ private fun LazyColumnish(
                         val startOffset = ((week - 1) * 7)
                         val start = if (semStart.isBlank()) "" else Dates.addDays(semStart, startOffset)
                         val end = if (start.isBlank()) "" else Dates.addDays(start, 6)
-                        Text(
-                            if (start.isBlank()) "在设置里填学期起始日" else "${Dates.fmt(start, "MM-dd")} ～ ${Dates.fmt(end, "MM-dd")}",
-                            fontSize = 11.sp, color = p.textWeak,
-                        )
-                        // 学期名可点：切换 / 新建 / 删除都在弹层里
-                        Text(
-                            (d?.semesterName?.ifBlank { null } ?: "选择学期") + " ›",
-                            fontSize = 11.sp, color = p.accentStrong,
-                            modifier = Modifier.clickable { onSemester() },
-                        )
+                        // 日期和学期名压成一行：原来占三行（周次/日期/学期），
+                        // 手机上等于白吃 40dp 高度，课表能露出来的节次更少了。
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (start.isBlank()) "先设学期起始日" else "${Dates.fmt(start, "MM-dd")}～${Dates.fmt(end, "MM-dd")}",
+                                fontSize = 11.sp, color = p.textWeak,
+                            )
+                            Text(" · ", fontSize = 11.sp, color = p.textWeak)
+                            // 学期名可点：切换 / 新建 / 删除都在弹层里
+                            Text(
+                                (d?.semesterName?.ifBlank { null } ?: "选择学期") + " ›",
+                                fontSize = 11.sp, color = p.accentStrong,
+                                modifier = Modifier.clickable { onSemester() },
+                            )
+                        }
                     }
                     WeekArrow("›", "下一周") { onNextWeek() }
                     Spacer(Modifier.width(6.dp))
@@ -254,7 +259,13 @@ private fun LazyColumnish(
             }
 
             StaggerIn(3) {
-                AppCard(Modifier.fillMaxWidth(), PaddingValues(horizontal = 0.dp, vertical = 12.dp)) {
+                // 课表卡片用纯主题卡片色（containerColor 显式给）：不透明、与网页 .card 一致。
+                // 不指定的话 clay 系主题会走 cardBrush 渐变，网格底看起来发灰。
+                AppCard(
+                    Modifier.fillMaxWidth(),
+                    PaddingValues(horizontal = 0.dp, vertical = 12.dp),
+                    containerColor = p.card,
+                ) {
                     Column {
                         Row(Modifier.fillMaxWidth()) {
                             Spacer(Modifier.width(gutterW))
@@ -313,60 +324,28 @@ private fun LazyColumnish(
                             }
                             Row(Modifier.horizontalScroll(scroll)) {
                                 (1..7).forEach { weekday ->
+                                    val inWeek = d.items.filter { it.weekday == weekday && weeksInclude(it.weeksText, week) }
+                                    // 非本周的课：与任何本周课时间重叠就不画（否则两块叠在一起谁也看不清），
+                                    // 空档里画成灰块 —— 看得见排课、又不至于让人以为是今天要上的课。
+                                    val offWeek = d.items
+                                        .filter { it.weekday == weekday && !weeksInclude(it.weeksText, week) }
+                                        .filter { c -> inWeek.none { a -> c.startPeriod <= a.endPeriod && a.startPeriod <= c.endPeriod } }
+
                                     Box(Modifier.width(colW).height(cellH * periods.size)) {
-                                        // 底纹
-                                        periods.forEachIndexed { idx, _ ->
-                                            Box(
-                                                Modifier
-                                                    .offset(y = cellH * idx)
-                                                    .width(colW)
-                                                    .height(cellH)
-                                                    .padding(1.dp)
-                                                    .background(p.cardSoft.copy(alpha = .30f), chipShape())
-                                            )
-                                        }
-                                        // 课程块
-                                        d.items.filter { it.weekday == weekday && weeksInclude(it.weeksText, week) }
-                                            .forEach { c ->
-                                                val span = (c.endPeriod - c.startPeriod + 1).coerceAtLeast(1)
-                                                if (c.startPeriod in 1..periods.size) {
-                                                    val col = colorsOf(c, p.isDark)
-                                                    Box(
-                                                        Modifier
-                                                            .offset(y = cellH * (c.startPeriod - 1))
-                                                            .width(colW)
-                                                            .height(cellH * span)
-                                                            .padding(1.dp)
-                                                            // 半透明底 + 同色细边：底色压薄一点，
-                                                            // 「今天列」的淡底才能透出来（实色会把整列高亮盖掉）
-                                                            .background(col.bg, chipShape())
-                                                            .border(1.dp, col.fg.copy(alpha = .22f), chipShape())
-                                                            .clickable { onEdit(c) }
-                                                            .padding(4.dp),
-                                                    ) {
-                                                        Column {
-                                                            Text(
-                                                                c.name,
-                                                                fontSize = 10.sp,
-                                                                color = col.fg,
-                                                                fontWeight = FontWeight.Medium,
-                                                                maxLines = 3,
-                                                                overflow = TextOverflow.Ellipsis,
-                                                                lineHeight = 13.sp,
-                                                            )
-                                                            if (c.location.isNotBlank())
-                                                                Text(
-                                                                    c.location,
-                                                                    fontSize = 8.5.sp,
-                                                                    color = col.fg.copy(alpha = .75f),
-                                                                    maxLines = 2,
-                                                                    overflow = TextOverflow.Ellipsis,
-                                                                    lineHeight = 11.sp,
-                                                                )
-                                                        }
-                                                    }
-                                                }
+                                        // 不再铺灰色底纹：格子的「底」就是卡片本身（主题卡片色）。
+                                        // 之前每格垫一块 30% 灰，整片课表看起来是灰的，课程颜色也被拉灰。
+                                        offWeek.forEach { c ->
+                                            if (c.startPeriod in 1..periods.size) {
+                                                CourseBlock(c, off = true, cellH = cellH, colW = colW,
+                                                    onEdit = onEdit, cols = OffColors(p.isDark))
                                             }
+                                        }
+                                        inWeek.forEach { c ->
+                                            if (c.startPeriod in 1..periods.size) {
+                                                CourseBlock(c, off = false, cellH = cellH, colW = colW,
+                                                    onEdit = onEdit, cols = colorsOf(c, p.isDark))
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -377,6 +356,58 @@ private fun LazyColumnish(
         }
     }
 }
+
+/** 一块课。off = 非本周（灰块）。抽出来是因为彩色/灰色两处都要画，写法必须一致 */
+@Composable
+private fun CourseBlock(
+    c: CourseDto,
+    off: Boolean,
+    cellH: androidx.compose.ui.unit.Dp,
+    colW: androidx.compose.ui.unit.Dp,
+    onEdit: (CourseDto) -> Unit,
+    cols: CourseColors,
+) {
+    val span = (c.endPeriod - c.startPeriod + 1).coerceAtLeast(1)
+    Box(
+        Modifier
+            .offset(y = cellH * (c.startPeriod - 1))
+            .width(colW)
+            .height(cellH * span)
+            .padding(1.dp)
+            // 实色块 + 同色细边：底色不透明，七门课才分得开
+            // （半透明会被卡片底色拉灰，整片课表糊成一色）。
+            .background(cols.bg, chipShape())
+            .border(1.dp, cols.fg.copy(alpha = .18f), chipShape())
+            .clickable { onEdit(c) }
+            .padding(horizontal = 4.dp, vertical = 3.dp),
+    ) {
+        Column {
+            Text(
+                c.name,
+                fontSize = 10.sp,
+                color = cols.fg,
+                fontWeight = FontWeight.Medium,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 13.sp,
+            )
+            if (c.location.isNotBlank()) {
+                Text(
+                    c.location,
+                    fontSize = 8.5.sp,
+                    color = cols.fg.copy(alpha = if (off) .7f else .78f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 11.sp,
+                )
+            }
+        }
+    }
+}
+
+/** 非本周课程的灰配色 */
+private fun OffColors(isDark: Boolean) =
+    CourseColors(CoursePalette.offBg(isDark), CoursePalette.offFg(isDark))
 
 /** 周切换箭头：圆形底 + 大号 ‹ ›，比文字按钮更像个可点的开关 */
 @Composable

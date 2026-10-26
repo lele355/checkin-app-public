@@ -55,10 +55,35 @@ object CoursePalette {
      * 好处是五套主题（含 clay 渐变、neusp 软塑）都自动适配，
      * 不必像网页那样为每套主题各写一份 --cc-bg。
      */
+    /**
+     * 课程块底色 —— **不透明**的亮色。
+     *
+     * 【为什么不再是「前景色 + 透明度」】半透明色叠在卡片底上会被底色拉灰：
+     * 七门课放在一起看，全是同一片灰蓝灰粉，颜色等于没起作用。
+     * 参考课程格子类 App 的做法：一块课就是一块实色，宁可亮一点。
+     * 深色主题用低明度同色系（不能直接搬浅色那组，白底亮色在暗底上会刺眼）。
+     */
+    private val lightBg = listOf(
+        Color(0xFFEDE4FF), // violet
+        Color(0xFFDCEBFF), // blue
+        Color(0xFFD7F4EC), // teal
+        Color(0xFFFFF0CC), // amber
+        Color(0xFFFFE1EA), // rose
+        Color(0xFFDDF5E4), // green
+        Color(0xFFE4E7FF), // indigo
+        Color(0xFFFFE7D6), // orange
+    )
+    private val darkBg = listOf(
+        Color(0xFF3B2E5C), Color(0xFF1E3A5F), Color(0xFF12463F), Color(0xFF4A3708),
+        Color(0xFF5A1F2E), Color(0xFF14432A), Color(0xFF2B2C5E), Color(0xFF5A2C10),
+    )
+
     fun bg(key: String, isDark: Boolean): Color =
-        // 透明度别压太低：13% 叠在浅灰卡片上会发灰，七门课看起来都是同一片灰蓝。
-        // 20% 是「一眼能分出颜色、又不抢正文」的位置。
-        fg(key, isDark).copy(alpha = if (isDark) .30f else .20f)
+        (if (isDark) darkBg else lightBg)[indexOf(key)]
+
+    /** 非本周课程：灰块 + 灰字（与参考 App 一致 —— 明确「这周不上」，但还看得见排课） */
+    fun offBg(isDark: Boolean): Color = if (isDark) Color(0xFF34343A) else Color(0xFFEDEBE8)
+    fun offFg(isDark: Boolean): Color = if (isDark) Color(0xFF9C9CA2) else Color(0xFF86837E)
 
     /**
      * 课程名归一键：忽略大小写、空白、全角半角和常见分隔符的差异。
