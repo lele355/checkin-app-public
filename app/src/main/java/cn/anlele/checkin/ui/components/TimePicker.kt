@@ -16,10 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,7 +42,6 @@ fun minuteText(minute: Int): String {
  * 不用 Material3 的 TimePicker：它强制 24 小时表盘，中文字号在小屏上会被裁切，
  * 而且不同 material3 版本 API 有变动。这里用两列滚动列表，直观且五套主题下都稳。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MinuteOfDaySheet(
     title: String,
@@ -57,16 +53,10 @@ fun MinuteOfDaySheet(
     val safe = ((initialMinute % 1440) + 1440) % 1440
     var hour by remember { mutableStateOf(safe / 60) }
     var minute by remember { mutableStateOf(safe % 60) }
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val hourState = rememberLazyListState(initialFirstVisibleItemIndex = (hour - 2).coerceAtLeast(0))
     val minState = rememberLazyListState(initialFirstVisibleItemIndex = (minute - 2).coerceAtLeast(0))
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheet,
-        containerColor = p.card,
-        dragHandle = {},
-    ) {
+    PickerSheetShell(onDismiss = onDismiss) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 18.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = p.text, modifier = Modifier.weight(1f))

@@ -1,13 +1,19 @@
 package cn.anlele.checkin.ui.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -15,14 +21,15 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,10 +38,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import cn.anlele.checkin.ui.icons.AppIcons
 import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.fieldShape
@@ -78,7 +88,76 @@ private fun SheetGrip() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * 选择器弹层的容器 —— 从底部升起的卡片，但**用 Dialog 而不是 ModalBottomSheet**。
+ *
+ * 【为什么不用 ModalBottomSheet】
+ * 所有日期 / 时间 / 数字 / 周次的选择器都是在 [EditSheet] 里点开的，
+ * 而 EditSheet 本身就是 ModalBottomSheet。两个 ModalBottomSheet 叠在一起时，
+ * 后一个的 scrim 与窗口层级在各家 ROM 上表现不一致：有的机型正常，
+ * 有的机型新弹层被压在旧弹层底下（表现为「点了没反应」），
+ * 还有的在返回键、手势返回时把两个一起关掉。
+ * Dialog 走的是独立窗口，永远盖在 Activity 内容（含 BottomSheet）之上，
+ * 层级关系是 Android 保证的，不依赖 ROM 实现。
+ *
+ * 【形态】做成底部卡片而不是居中对话框：手机上一根拇指够得到，
+ * 且与 App 里其它弹层视觉一致（同圆角、同横条、同底色）。
+ */
+@Composable
+fun PickerSheetShell(
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val p = palette
+    // 从下方滑入。用 Animatable 手写而不是 AnimatedVisibility：
+    // Dialog 的窗口是新建的，AnimatedVisibility 的初始值容易在首帧就被跳过。
+    val rise = remember { Animatable(1f) }
+    LaunchedEffect(Unit) {
+        rise.animateTo(0f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                // 点空白处关闭。用无涟漪的 clickable 当遮罩，比 Box + pointerInput 更省事，
+                // 也让无障碍服务能读到「关闭」这个动作。
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss,
+                ),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Column(
+                Modifier
+                    .graphicsLayer { translationY = rise.value * 260.dp.toPx() }
+                    .fillMaxWidth()
+                    // 横屏时屏幕宽了近三倍，满宽会把 7 列格子拉成很扁的长条，
+                    // 视觉上和竖屏完全是两个东西。限个宽，横屏下就是一块居中的面板。
+                    .widthIn(max = 520.dp)
+                    .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
+                    .background(p.card)
+                    // 内容比屏幕高时（横屏、小屏、周次满 20 格）卡片自己滚，
+                    // 而不是从顶部被裁掉——标题被裁等于不知道自己在选什么。
+                    .verticalScroll(rememberScrollState())
+                    // 卡片自己吃掉点击，否则点卡片空白处会穿到遮罩上把弹层关掉
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {},
+                    ),
+            ) {
+                SheetGrip()
+                content()
+            }
+        }
+    }
+}
+
 @Composable
 fun DatePickerSheet(
     initial: String? = null,
@@ -94,14 +173,8 @@ fun DatePickerSheet(
         initial?.take(10)?.takeIf { it.length == 10 && it[4] == '-' } ?: today
     }
     var ym by remember { mutableStateOf(picked.take(7)) }
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheet,
-        containerColor = p.card,
-        dragHandle = { SheetGrip() },
-    ) {
+    PickerSheetShell(onDismiss = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -392,7 +465,6 @@ private fun PickerShell(
  * 数字选择弹层（第几节课这种）。范围小的选择题，不该让用户手打数字 ——
  * 手打会出现 0、99、空，还要在保存时才报错。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NumberSheet(
     title: String,
@@ -402,13 +474,7 @@ fun NumberSheet(
     onPick: (Int) -> Unit,
 ) {
     val p = palette
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheet,
-        containerColor = p.card,
-        dragHandle = { SheetGrip() },
-    ) {
+    PickerSheetShell(onDismiss = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -478,7 +544,6 @@ fun NumberField(
  * 等于要求用户先学会一套私有语法，填错了课就整学期不显示。
  * 现在随便点，生成出来的还是后端认的老格式（Weeks.format），接口不用动。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WeekPickerSheet(
     initial: String,
@@ -487,14 +552,8 @@ fun WeekPickerSheet(
 ) {
     val p = palette
     var sel by remember { mutableStateOf(Weeks.parse(initial)) }
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheet,
-        containerColor = p.card,
-        dragHandle = { SheetGrip() },
-    ) {
+    PickerSheetShell(onDismiss = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()
