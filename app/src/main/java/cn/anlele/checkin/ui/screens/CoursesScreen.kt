@@ -80,8 +80,8 @@ private fun colorsOf(c: CourseDto, isDark: Boolean): CourseColors {
 
 /**
  * 课程表 —— 与网页手机端一致：
- * 页头（添加课程）→ 周切换（‹ 第 N 周 日期区间 ›）+ 学期起始日 + 保存 + 节次时间
- * → 图例 → 节次 × 星期 表格（左右横滑、跨节次整块）→ 右下角浮动「+」。
+ * 顶部工具条（‹ 第 N 周 日期区间 › + 设置 + 添加）→ 节次 × 星期 表格（左右横滑、跨节次整块）。
+ * 学期起始日 / 节次时间 / 非本周显示都收进「课表设置」二级弹层，课表页不再摊表单。
  */
 @Composable
 fun CoursesScreen(vm: AppVm) {
@@ -118,20 +118,8 @@ fun CoursesScreen(vm: AppVm) {
             week = week,
             loading = loading,
             semStart = semStart,
-            onSemStart = { semStart = it },
             onPrevWeek = { if (week > 1) week-- },
             onNextWeek = { week++ },
-            onSaveSemStart = {
-                scope.launch {
-                    try {
-                        Repo.saveCourseSettings(Repo.CourseSettingsReq(semesterStart = semStart))
-                        vm.toast("学期起始日已保存")
-                        load()
-                    } catch (e: Exception) {
-                        vm.toast("保存失败")
-                    }
-                }
-            },
             onSettings = { settingsOpen = true },
             onAdd = { editing = null; editorOpen = true },
             onEdit = { editing = it; editorOpen = true },
@@ -173,10 +161,8 @@ private fun LazyColumnish(
     week: Int,
     loading: Boolean,
     semStart: String,
-    onSemStart: (String) -> Unit,
     onPrevWeek: () -> Unit,
     onNextWeek: () -> Unit,
-    onSaveSemStart: () -> Unit,
     onSettings: () -> Unit,
     onAdd: () -> Unit,
     onEdit: (CourseDto) -> Unit,
@@ -187,67 +173,26 @@ private fun LazyColumnish(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 90.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        StaggerIn(0) {
-            PageHeadCard(
-                title = "课程表",
-                actions = { HeadButton("添加课程") { onAdd() } },
-            )
-        }
-
-        // ---------- 周切换 + 学期起始 ----------
+        // ---------- 顶部工具条：‹ 第 N 周 › + 设置 + 添加 ----------
+        // 学期起始日、节次时间原先直接摊在这张卡里，一进课程表先看到两行表单。
+        // 那些是一学期改一次的东西，收进「课表设置」二级页；首屏只留换周和两个动作。
         StaggerIn(1) {
-            AppCard(Modifier.fillMaxWidth(), PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
-                Column {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        TinyAction("‹ 上一周", null) { onPrevWeek() }
-                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("第 $week 周", fontSize = 15.5.sp, color = p.text, fontWeight = FontWeight.SemiBold)
-                            val startOffset = ((week - 1) * 7)
-                            val start = if (semStart.isBlank()) "" else Dates.addDays(semStart, startOffset)
-                            val end = if (start.isBlank()) "" else Dates.addDays(start, 6)
-                            Text(
-                                if (start.isBlank()) "先设学期起始日" else "${Dates.fmt(start, "MM-dd")} ~ ${Dates.fmt(end, "MM-dd")}",
-                                fontSize = 11.sp, color = p.textWeak,
-                            )
-                        }
-                        TinyAction("下一周 ›", null) { onNextWeek() }
+            AppCard(Modifier.fillMaxWidth(), PaddingValues(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 8.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    WeekArrow("‹", "上一周") { onPrevWeek() }
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("第 $week 周", fontSize = 15.5.sp, color = p.text, fontWeight = FontWeight.SemiBold)
+                        val startOffset = ((week - 1) * 7)
+                        val start = if (semStart.isBlank()) "" else Dates.addDays(semStart, startOffset)
+                        val end = if (start.isBlank()) "" else Dates.addDays(start, 6)
+                        Text(
+                            if (start.isBlank()) "在设置里填学期起始日" else "${Dates.fmt(start, "MM-dd")} ～ ${Dates.fmt(end, "MM-dd")}",
+                            fontSize = 11.sp, color = p.textWeak,
+                        )
                     }
-                    Spacer(Modifier.height(12.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("学期起始（第 1 周的周一）", fontSize = 11.5.sp, color = p.textWeak, modifier = Modifier.weight(1f))
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // 这里是页面上最显眼的日期字段，原来还是手打输入框（点一下弹键盘），
-                        // 与「日期一律点选」的规矩不一致。换成 DateField，点开月历选。
-                        // 学期起始只认周一，所以选完统一吸附到所在周的周一。
-                        Box(Modifier.weight(1f)) {
-                            DateField(
-                                label = "",
-                                value = semStart,
-                                placeholder = "选择日期",
-                                onChange = { picked ->
-                                    if (picked.isBlank()) {
-                                        onSemStart("")
-                                    } else {
-                                        val mon = Dates.mondayOf(picked)
-                                        onSemStart(mon)
-                                        if (mon != picked) vm.toast("已对齐到该周周一")
-                                    }
-                                },
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        HeadButton("保存", icon = null) { onSaveSemStart() }
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Row(Modifier.fillMaxWidth().clickable { onSettings() }, verticalAlignment = Alignment.CenterVertically) {
-                        Icon(AppIcons["settings-2"], null, Modifier.size(14.dp), tint = p.textSub)
-                        Spacer(Modifier.width(6.dp))
-                        Text("节次时间（${d?.periods?.size ?: 12} 节）", fontSize = 12.5.sp, color = p.textSub)
-                        Spacer(Modifier.weight(1f))
-                        Icon(AppIcons["chevron-right"], null, Modifier.size(13.dp), tint = p.textWeak)
-                    }
+                    WeekArrow("›", "下一周") { onNextWeek() }
+                    Spacer(Modifier.width(6.dp))
+                    CircleIconBtn("settings-2", "课表设置") { onSettings() }
                 }
             }
         }
@@ -257,33 +202,8 @@ private fun LazyColumnish(
             return@Column
         }
 
-        // ---------- 图例 ----------
-        // 按「课程」去重（颜色现在跟着课程走）。同一门课一周上几次只留一个色块；
-        // 课程多到十几门时图例会撑爆一行，所以横滑 + 最多 12 门。
-        StaggerIn(2) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
-            ) {
-                d.items
-                    .distinctBy { CoursePalette.nameKey(it.name) }
-                    .take(12)
-                    .forEach { c ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(9.dp).background(colorsOf(c, p.isDark).fg, chipShape()))
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                c.name,
-                                fontSize = 10.5.sp,
-                                color = p.textSub,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.widthIn(max = 96.dp),
-                            )
-                        }
-                    }
-            }
-        }
+        // 图例已删除：颜色现在区分的是「哪门课」，一门课一个色，
+        // 列一排色块等于把课程名再抄一遍，白白占掉一屏里最贵的一行。
 
         // ---------- 表格 ----------
         if (d.items.isEmpty()) {
@@ -296,12 +216,23 @@ private fun LazyColumnish(
             }
         } else {
             val periods = d.periods
-            val cellH = 52.dp
+            val cellH = 54.dp
             val colW = 76.dp
             val gutterW = 40.dp
             val scroll = rememberScrollState()
             val semesterStart = if (semStart.isBlank()) d.semesterStart else semStart
             val weekStart = if (semesterStart.isBlank()) "" else Dates.addDays(semesterStart, (week - 1) * 7)
+
+            // 打开就滚到「今天」那列，并在左边留一列（通常是昨天）。
+            // 手机上 7 列是横滑的，默认停在周一 —— 周三有课也要先往右划两下，
+            // 而「今天上什么」才是打开课表最想看的。
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            LaunchedEffect(week, d.todayWeekday) {
+                if (week != d.currentWeek) { scroll.scrollTo(0); return@LaunchedEffect }
+                val colPx = with(density) { colW.toPx() }
+                val keepLeft = (d.todayWeekday - 2).coerceAtLeast(0)
+                scroll.animateScrollTo((colPx * keepLeft).toInt())
+            }
 
             StaggerIn(3) {
                 AppCard(Modifier.fillMaxWidth(), PaddingValues(horizontal = 0.dp, vertical = 12.dp)) {
@@ -311,17 +242,33 @@ private fun LazyColumnish(
                             Row(Modifier.horizontalScroll(scroll)) {
                                 WEEK_LABELS.forEachIndexed { i, label ->
                                     val dateLabel = if (weekStart.isBlank()) "" else Dates.fmt(Dates.addDays(weekStart, i), "MM-dd")
+                                    val isToday = week == d.currentWeek && d.todayWeekday == i + 1
                                     Column(
-                                        Modifier.width(colW).padding(vertical = 4.dp),
+                                        Modifier
+                                            .width(colW)
+                                            .padding(vertical = 4.dp)
+                                            .then(if (isToday) Modifier.background(p.accentSoft, chipShape()) else Modifier),
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                     ) {
                                         Text(
                                             label, fontSize = 11.5.sp,
-                                            color = if (d.todayWeekday == i + 1 && week == d.currentWeek) p.accent else p.textSub,
-                                            fontWeight = FontWeight.Medium,
+                                            color = if (isToday) p.text else p.textSub,
+                                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
                                         )
                                         if (dateLabel.isNotBlank())
-                                            Text(dateLabel, fontSize = 9.5.sp, color = p.textWeak)
+                                            Text(
+                                                dateLabel,
+                                                fontSize = 9.5.sp,
+                                                // 今天用「反白小胶囊」：只靠淡底色在深色主题下几乎看不出
+                                                // （强调色本身可能就是深墨色，和正文同色）。
+                                                color = if (isToday) p.onAccent else p.textWeak,
+                                                fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Normal,
+                                                modifier = if (isToday)
+                                                    Modifier
+                                                        .background(p.accent, chipShape())
+                                                        .padding(horizontal = 5.dp)
+                                                else Modifier,
+                                            )
                                     }
                                 }
                             }
@@ -336,9 +283,12 @@ private fun LazyColumnish(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.Center,
                                     ) {
-                                        Text("${idx + 1}", fontSize = 11.sp, color = p.textWeak)
-                                        Text(slot.start, fontSize = 8.sp, color = p.textWeak)
-                                        Text(slot.end, fontSize = 8.sp, color = p.textWeak)
+                                        // lineHeight 必须钉死：默认行高按中文字体算接近 1.6 倍，
+                                        // 三行（节号 + 起 + 止）在 52dp 的格子里放不下，结束时间会被裁掉。
+                                        Text("${idx + 1}", fontSize = 10.5.sp, lineHeight = 12.sp, color = p.textSub,
+                                            fontWeight = FontWeight.Medium)
+                                        Text(slot.start, fontSize = 7.5.sp, lineHeight = 9.sp, color = p.textWeak)
+                                        Text(slot.end, fontSize = 7.5.sp, lineHeight = 9.sp, color = p.textWeak)
                                     }
                                 }
                             }
@@ -368,7 +318,10 @@ private fun LazyColumnish(
                                                             .width(colW)
                                                             .height(cellH * span)
                                                             .padding(1.dp)
+                                                            // 半透明底 + 同色细边：底色压薄一点，
+                                                            // 「今天列」的淡底才能透出来（实色会把整列高亮盖掉）
                                                             .background(col.bg, chipShape())
+                                                            .border(1.dp, col.fg.copy(alpha = .22f), chipShape())
                                                             .clickable { onEdit(c) }
                                                             .padding(4.dp),
                                                     ) {
@@ -399,18 +352,41 @@ private fun LazyColumnish(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "← 左右滑动看完整一周 →",
-                            fontSize = 10.5.sp,
-                            color = p.textWeak,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
                     }
                 }
             }
         }
+    }
+}
+
+/** 周切换箭头：圆形底 + 大号 ‹ ›，比文字按钮更像个可点的开关 */
+@Composable
+private fun WeekArrow(glyph: String, desc: String, onClick: () -> Unit) {
+    val p = palette
+    Box(
+        Modifier.size(34.dp).clip(CircleShape).background(p.cardSoft).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(glyph, fontSize = 20.sp, color = p.textSub)
+    }
+}
+
+/** 工具条右侧的圆形图标按钮；primary = 主色实心（添加） */
+@Composable
+private fun CircleIconBtn(icon: String, desc: String, primary: Boolean = false, onClick: () -> Unit) {
+    val p = palette
+    Box(
+        Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(if (primary) p.accent else p.cardSoft)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            AppIcons[icon], desc, Modifier.size(17.dp),
+            tint = if (primary) p.onAccent else p.textSub,
+        )
     }
 }
 

@@ -56,7 +56,9 @@ object CoursePalette {
      * 不必像网页那样为每套主题各写一份 --cc-bg。
      */
     fun bg(key: String, isDark: Boolean): Color =
-        fg(key, isDark).copy(alpha = if (isDark) .22f else .13f)
+        // 透明度别压太低：13% 叠在浅灰卡片上会发灰，七门课看起来都是同一片灰蓝。
+        // 20% 是「一眼能分出颜色、又不抢正文」的位置。
+        fg(key, isDark).copy(alpha = if (isDark) .30f else .20f)
 
     /**
      * 课程名归一键：忽略大小写、空白、全角半角和常见分隔符的差异。
