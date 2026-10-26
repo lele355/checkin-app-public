@@ -20,6 +20,7 @@ data class UiState(
     val me: MeDto? = null,
     val theme: String = "editorial",
     val accent: String = "",
+    val tone: String = "",
     val offline: Boolean = false,
     val loginError: String? = null,
     val toast: String? = null,
@@ -59,7 +60,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val saved = store.load()
             Api.token = saved.token
-            ui = ui.copy(theme = saved.theme, accent = saved.accent)
+            ui = ui.copy(theme = saved.theme, accent = saved.accent, tone = saved.tone)
 
             if (saved.token.isNullOrBlank()) {
                 ui = ui.copy(booting = false)
@@ -72,7 +73,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             try {
                 val fresh = Repo.me()
                 store.saveMe(fresh)
-                ui = ui.copy(me = fresh, theme = fresh.theme, accent = fresh.accent, offline = false)
+                ui = ui.copy(me = fresh, theme = fresh.theme, accent = fresh.accent, tone = fresh.tone, offline = false)
                 resyncAlarms()
             } catch (e: ApiException) {
                 if (e.code == 401) {
@@ -100,7 +101,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                 store.saveLogin(r)
                 ui = ui.copy(
                     busy = false, me = r.user, theme = r.user.theme,
-                    accent = r.user.accent, loginError = null, offline = false,
+                    accent = r.user.accent, tone = r.user.tone, loginError = null, offline = false,
                 )
                 resyncAlarms()
             } catch (e: ApiException) {
@@ -125,12 +126,12 @@ class AppVm(app: Application) : AndroidViewModel(app) {
 
     // ---------------- 外观 ----------------
 
-    fun setTheme(theme: String, accent: String) {
-        ui = ui.copy(theme = theme, accent = accent)
+    fun setTheme(theme: String, accent: String, tone: String = "") {
+        ui = ui.copy(theme = theme, accent = accent, tone = tone)
         viewModelScope.launch {
-            store.setTheme(theme, accent)
+            store.setTheme(theme, accent, tone)
             runCatching {
-                val me = Repo.savePrefs(Repo.PrefsReq(theme = theme, accent = accent))
+                val me = Repo.savePrefs(Repo.PrefsReq(theme = theme, accent = accent, tone = tone))
                 store.saveMe(me)
                 ui = ui.copy(me = me)
             }
@@ -140,7 +141,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     // ---------------- 资料 ----------------
 
     fun updateMe(me: MeDto) {
-        ui = ui.copy(me = me, theme = me.theme, accent = me.accent)
+        ui = ui.copy(me = me, theme = me.theme, accent = me.accent, tone = me.tone)
         viewModelScope.launch { store.saveMe(me) }
     }
 

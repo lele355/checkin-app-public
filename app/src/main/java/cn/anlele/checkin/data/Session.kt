@@ -16,6 +16,7 @@ data class SessionState(
     val theme: String = "editorial",
     val accent: String = "",
     val lastSyncAt: Long = 0,
+    val tone: String = "",
 ) {
     val loggedIn get() = !token.isNullOrBlank()
 }
@@ -34,6 +35,8 @@ class SessionStore(private val ctx: Context) {
         val theme = stringPreferencesKey("theme")
         val accent = stringPreferencesKey("accent")
         val lastSyncAt = stringPreferencesKey("lastSyncAt")
+        // 底色档（网页端叫 data-tone）。老版本没这个键 → 读出来是 null → 当作「默认底色」
+        val tone = stringPreferencesKey("tone")
     }
 
     val flow: Flow<SessionState> = ctx.sessionStore.data.map { p ->
@@ -43,6 +46,7 @@ class SessionStore(private val ctx: Context) {
             theme = p[K.theme] ?: "editorial",
             accent = p[K.accent] ?: "",
             lastSyncAt = p[K.lastSyncAt]?.toLongOrNull() ?: 0,
+            tone = p[K.tone] ?: "",
         )
     }
 
@@ -54,6 +58,7 @@ class SessionStore(private val ctx: Context) {
             p[K.me] = Api.json.encodeToString(MeDto.serializer(), result.user)
             p[K.theme] = result.user.theme
             p[K.accent] = result.user.accent
+            p[K.tone] = result.user.tone
             p[K.lastSyncAt] = System.currentTimeMillis().toString()
         }
         Api.token = result.token
@@ -64,14 +69,16 @@ class SessionStore(private val ctx: Context) {
             p[K.me] = Api.json.encodeToString(MeDto.serializer(), me)
             p[K.theme] = me.theme
             p[K.accent] = me.accent
+            p[K.tone] = me.tone
             p[K.lastSyncAt] = System.currentTimeMillis().toString()
         }
     }
 
-    suspend fun setTheme(theme: String, accent: String) {
+    suspend fun setTheme(theme: String, accent: String, tone: String) {
         ctx.sessionStore.edit { p ->
             p[K.theme] = theme
             p[K.accent] = accent
+            p[K.tone] = tone
         }
     }
 

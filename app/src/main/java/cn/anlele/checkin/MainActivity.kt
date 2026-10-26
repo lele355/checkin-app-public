@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(vm: AppVm) {
     val state = vm.ui
 
-    CheckinTheme(AppTheme.of(state.theme), state.accent) {
+    CheckinTheme(AppTheme.of(state.theme), state.accent, state.tone) {
         SystemBars(dark = palette.isDark)
 
         Box(Modifier.fillMaxSize().background(palette.bg)) {

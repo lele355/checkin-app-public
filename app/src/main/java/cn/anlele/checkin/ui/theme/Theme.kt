@@ -34,6 +34,47 @@ enum class AppTheme(val slug: String, val label: String, val desc: String) {
     }
 }
 
+/**
+ * 底色档 —— 与网站 tokens.css 的 `[data-tone]` 一一对应。
+ *
+ * 网页端的三层换色：主题（决定形状/字体/质感）× 底色（管纸面）× 强调色（管笔色）。
+ * App 早期只做了主题和强调色，把「底色」这层整组漏了 —— 于是切到 editorial /
+ * natural 时只能换主题不能换纸色，等于少了一整组选项。
+ *
+ * 每套主题各 5 个备选（slug 为空的那档就是主题默认底色，不列在这里）。
+ */
+data class ToneOption(val slug: String, val label: String)
+
+private val EDITORIAL_TONES = listOf(
+    ToneOption("mist", "雾蓝"), ToneOption("rose", "藕粉"), ToneOption("wheat", "麦茶"),
+    ToneOption("sage", "鼠尾草"), ToneOption("lilac", "淡紫"),
+)
+private val NEUMORPH_TONES = listOf(
+    ToneOption("blue", "雾蓝"), ToneOption("rose", "藕粉"), ToneOption("mint", "薄荷"),
+    ToneOption("sand", "沙金"), ToneOption("lilac", "淡紫"),
+)
+private val NATURAL_TONES = listOf(
+    ToneOption("clay", "陶土"), ToneOption("leaf", "叶绿"), ToneOption("mist", "晨雾"),
+    ToneOption("sand", "麦浪"), ToneOption("stone", "青石"),
+)
+private val MACOS_TONES = listOf(
+    ToneOption("midnight", "午夜蓝"), ToneOption("plum", "深梅"), ToneOption("forest", "墨绿"),
+    ToneOption("coffee", "咖褐"), ToneOption("slate", "青灰"),
+)
+private val CLAY_TONES = listOf(
+    ToneOption("mint", "薄荷"), ToneOption("lilac", "薰衣草"), ToneOption("lemon", "柠檬"),
+    ToneOption("sky", "天空"), ToneOption("blush", "樱粉"),
+)
+
+/** 某套主题可选的底色档（不含「默认」那一档） */
+fun tonesOf(theme: AppTheme): List<ToneOption> = when (theme) {
+    AppTheme.Editorial -> EDITORIAL_TONES
+    AppTheme.Neumorphism -> NEUMORPH_TONES
+    AppTheme.Natural -> NATURAL_TONES
+    AppTheme.Macos -> MACOS_TONES
+    AppTheme.Clay -> CLAY_TONES
+}
+
 /** 一套主题的全部设计令牌。字段名对齐 CSS 变量，方便两边对照维护。 */
 data class Palette(
     val theme: AppTheme,
@@ -194,8 +235,121 @@ private val Clay = Palette(
     isDark = false,
 )
 
+/**
+ * 底色（tone）叠加 —— 对应网站 tokens.css 第 300~363 行的 `[data-theme][data-tone]`。
+ *
+ * 【为什么是 copy 而不是另起一套 Palette】
+ * 底色只换「纸面」：背景、卡片、卡内浅底、顶栏、侧栏，以及 natural 的边框色。
+ * 文字色、强调色、圆角、字体一律不动 —— 网页端也是这么写的（只覆盖 --bg/--card/...）。
+ * 这样改了底色不会把主题的质感（新拟物阴影色、clay 的渐变）带跑偏。
+ */
+private fun applyTone(base: Palette, tone: String): Palette {
+    // 白名单先过滤：tone 可能是别的主题存下来的（网页端换过主题、或者版本升级前的旧值）。
+    // 不校验的话，clay 的 "blush" 传到 editorial 会一路走到 else 分支白白跑一趟，
+    // 更糟的是将来加档位时容易漏掉某个主题 → 静默显示成默认底色，很难查。
+    if (tone.isBlank() || tonesOf(base.theme).none { it.slug == tone }) return base
+    return when (base.theme) {
+        // editorial：只换纸，文字保持墨色
+        AppTheme.Editorial -> {
+            val bg = when (tone) {
+                "mist" -> c(0xFFEDF1F5); "rose" -> c(0xFFF9EFF0); "wheat" -> c(0xFFF4EDDB)
+                "sage" -> c(0xFFECF1E7); "lilac" -> c(0xFFF1EDF6); else -> return base
+            }
+            base.copy(bg = bg, card = bg, topBar = bg, sideBar = bg)
+        }
+
+        // neumorphism：阴影色跟着底色走，光源方向不变
+        AppTheme.Neumorphism -> {
+            val (bg, soft, neuDark) = when (tone) {
+                "blue" -> Triple(c(0xFFDDE6F2), c(0xFFE4ECF6), c(0xFFB0BFD6))
+                "rose" -> Triple(c(0xFFEFE1E8), c(0xFFF3E8EE), c(0xFFC6AFB9))
+                "mint" -> Triple(c(0xFFDDEBE4), c(0xFFE4F0EA), c(0xFFACC0B7))
+                "sand" -> Triple(c(0xFFEAE3D6), c(0xFFF0EADF), c(0xFFC5BAA6))
+                "lilac" -> Triple(c(0xFFE5E1F1), c(0xFFEBE8F5), c(0xFFBAB2D3))
+                else -> return base
+            }
+            // borderStrong 兼作新拟物的阴影色（见 AppCard 里 shadow 的 ambientColor）
+            base.copy(
+                bg = bg, card = bg, cardSoft = soft, topBar = bg, sideBar = bg,
+                borderStrong = neuDark,
+            )
+        }
+
+        // natural：卡面比纸面浅一档，边框也跟着调
+        AppTheme.Natural -> {
+            val v = when (tone) {
+                "clay" -> listOf(0xFFF7EEE6, 0xFFFDF8F2, 0xFFF0E2D2, 0xFFE8D5C2, 0xFFD8BFA6)
+                "leaf" -> listOf(0xFFF0F3EA, 0xFFF8FAF3, 0xFFE6ECDB, 0xFFD8E0C8, 0xFFC2CDA8)
+                "mist" -> listOf(0xFFEEF2F4, 0xFFF7FAFB, 0xFFE2EAEE, 0xFFD4E0E6, 0xFFB8CCD4)
+                "sand" -> listOf(0xFFF6F0DF, 0xFFFDFAF1, 0xFFEFE6CD, 0xFFE2D8BD, 0xFFCDBF9C)
+                "stone" -> listOf(0xFFEEF0EE, 0xFFF8FAF8, 0xFFE3E7E4, 0xFFD6DCD9, 0xFFBCC5C0)
+                else -> return base
+            }
+            base.copy(
+                bg = c(v[0]), card = c(v[1]), cardSoft = c(v[2]),
+                topBar = c(v[0]), sideBar = c(v[0]),
+                border = c(v[3]), borderStrong = c(v[4]),
+            )
+        }
+
+        // macos：保持三级灰结构，只改色相
+        AppTheme.Macos -> {
+            val v = when (tone) {
+                "midnight" -> listOf(0xFF16181F, 0xFF22242E, 0xFF2E3140)
+                "plum" -> listOf(0xFF1C1722, 0xFF2A2230, 0xFF382D42)
+                "forest" -> listOf(0xFF141A17, 0xFF222A26, 0xFF2E3833)
+                "coffee" -> listOf(0xFF1D1815, 0xFF2A2320, 0xFF372E2A)
+                "slate" -> listOf(0xFF14181C, 0xFF20262B, 0xFF2B333A)
+                else -> return base
+            }
+            base.copy(
+                bg = c(v[0]), card = c(v[1]), cardSoft = c(v[2]),
+                topBar = c(v[0]), sideBar = c(v[0]),
+            )
+        }
+
+        // clay：三组渐变一起换（背景 / 卡片 / 卡内浅底）
+        AppTheme.Clay -> {
+            val (bg, card, soft) = when (tone) {
+                "mint" -> Triple(
+                    Brush.linearGradient(listOf(c(0xFFD1FAE5), c(0xFFCCFBF1), c(0xFFE0F2FE))),
+                    Brush.linearGradient(listOf(c(0xFFFFFFFF), c(0xFFEAFAF4))),
+                    c(0xFFD9F2EA),
+                )
+                "lilac" -> Triple(
+                    Brush.linearGradient(listOf(c(0xFFEDE9FE), c(0xFFE9D5FF), c(0xFFFCE7F3))),
+                    Brush.linearGradient(listOf(c(0xFFFFFFFF), c(0xFFF5F0FC))),
+                    c(0xFFEBE2F8),
+                )
+                "lemon" -> Triple(
+                    Brush.linearGradient(listOf(c(0xFFFEF9C3), c(0xFFFEF3C7), c(0xFFFDE68A))),
+                    Brush.linearGradient(listOf(c(0xFFFFFFFF), c(0xFFFDF6DD))),
+                    c(0xFFF8EDC8),
+                )
+                "sky" -> Triple(
+                    Brush.linearGradient(listOf(c(0xFFDBEAFE), c(0xFFE0F2FE), c(0xFFDBEAFE))),
+                    Brush.linearGradient(listOf(c(0xFFFFFFFF), c(0xFFEDF5FE))),
+                    c(0xFFD7E8FB),
+                )
+                "blush" -> Triple(
+                    Brush.linearGradient(listOf(c(0xFFFFE4E6), c(0xFFFECDD3), c(0xFFFBCFE8))),
+                    Brush.linearGradient(listOf(c(0xFFFFFFFF), c(0xFFFFF1F2))),
+                    c(0xFFFCD9DF),
+                )
+                else -> return base
+            }
+            // clay 的 bg 字段也要给个实色兜底（渐变画在 bgBrush 上，bg 只在没 brush 时用）
+            base.copy(
+                bg = soft, bgBrush = bg,
+                card = c(0xFFFFFFFF), cardBrush = card, cardSoft = soft,
+                topBar = c(0xFFFFFFFF, .78f), sideBar = c(0xFFFFFFFF, .70f),
+            )
+        }
+    }
+}
+
 /** 强调色变体 —— 只有 neumorphism / macos / clay 支持（与网站同规则） */
-fun paletteOf(theme: AppTheme, accent: String): Palette {
+fun paletteOf(theme: AppTheme, accent: String, tone: String = ""): Palette {
     val base = when (theme) {
         AppTheme.Editorial -> Editorial
         AppTheme.Neumorphism -> Neumorphism
@@ -203,7 +357,8 @@ fun paletteOf(theme: AppTheme, accent: String): Palette {
         AppTheme.Macos -> Macos
         AppTheme.Clay -> Clay
     }
-    if (accent.isBlank()) return base
+    val toned = applyTone(base, tone)
+    if (accent.isBlank()) return toned
 
     val triple = when (theme) {
         AppTheme.Neumorphism -> when (accent) {
@@ -225,13 +380,13 @@ fun paletteOf(theme: AppTheme, accent: String): Palette {
             else -> null
         }
         else -> null
-    } ?: return base
+    } ?: return toned
 
-    return base.copy(
+    return toned.copy(
         accent = triple.first,
         accentStrong = triple.second,
         accentSoft = triple.third,
-        onAccent = if (theme == AppTheme.Neumorphism && accent == "lemon") c(0xFF4A4318) else base.onAccent,
+        onAccent = if (theme == AppTheme.Neumorphism && accent == "lemon") c(0xFF4A4318) else toned.onAccent,
     )
 }
 
@@ -268,8 +423,13 @@ private fun typographyFor(p: Palette): Typography {
 }
 
 @Composable
-fun CheckinTheme(theme: AppTheme, accent: String = "", content: @Composable () -> Unit) {
-    val p = paletteOf(theme, accent)
+fun CheckinTheme(
+    theme: AppTheme,
+    accent: String = "",
+    tone: String = "",
+    content: @Composable () -> Unit,
+) {
+    val p = paletteOf(theme, accent, tone)
     val scheme = if (p.isDark) {
         darkColorScheme(
             primary = p.accent, onPrimary = p.onAccent, background = p.bg, onBackground = p.text,
