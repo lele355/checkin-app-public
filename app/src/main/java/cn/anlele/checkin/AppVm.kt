@@ -24,6 +24,13 @@ data class UiState(
     val offline: Boolean = false,
     val loginError: String? = null,
     val toast: String? = null,
+    /** 登录页「下次自动进入」开关，默认开（自用单机 App，绝大多数人不想每次都输密码） */
+    val keepLogin: Boolean = true,
+    /** 登录页「记住密码」开关，默认关（默认不把密码落在磁盘上更稳妥） */
+    val rememberPass: Boolean = false,
+    /** 上次记住的账号密码，登录页"打开就填好" */
+    val savedUser: String = "",
+    val savedPass: String = "",
 )
 
 /**
@@ -60,7 +67,11 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val saved = store.load()
             Api.token = saved.token
-            ui = ui.copy(theme = saved.theme, accent = saved.accent, tone = saved.tone)
+            ui = ui.copy(
+                theme = saved.theme, accent = saved.accent, tone = saved.tone,
+                keepLogin = saved.keepLogin, rememberPass = saved.rememberPass,
+                savedUser = saved.savedUser, savedPass = saved.savedPass,
+            )
 
             if (saved.token.isNullOrBlank()) {
                 ui = ui.copy(booting = false)
@@ -92,16 +103,21 @@ class AppVm(app: Application) : AndroidViewModel(app) {
 
     // ---------------- 登录 / 登出 ----------------
 
-    fun login(username: String, password: String) {
+    fun login(username: String, password: String, keepLogin: Boolean = ui.keepLogin, rememberPass: Boolean = ui.rememberPass) {
         if (ui.busy) return
-        ui = ui.copy(busy = true, loginError = null)
+        ui = ui.copy(busy = true, loginError = null, keepLogin = keepLogin, rememberPass = rememberPass)
         viewModelScope.launch {
             try {
                 val r = Repo.login(username.trim(), password)
-                store.saveLogin(r)
+                store.saveLogin(
+                    r, keepLogin = keepLogin, rememberPass = rememberPass,
+                    username = username.trim(), password = password,
+                )
                 ui = ui.copy(
                     busy = false, me = r.user, theme = r.user.theme,
                     accent = r.user.accent, tone = r.user.tone, loginError = null, offline = false,
+                    savedUser = if (rememberPass) username.trim() else "",
+                    savedPass = if (rememberPass) password else "",
                 )
                 resyncAlarms()
             } catch (e: ApiException) {
@@ -114,13 +130,25 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 登录页上直接切开关：立刻持久化，不用等点登录 */
+    fun setLoginOptions(keepLogin: Boolean, rememberPass: Boolean) {
+        ui = ui.copy(keepLogin = keepLogin, rememberPass = rememberPass)
+        viewModelScope.launch {
+            store.setKeepLogin(keepLogin)
+            // 关掉「记住密码」时顺手清掉存档；开着但还没输过账号，就等登录成功再存
+            store.setRememberPass(rememberPass, ui.savedUser, ui.savedPass)
+            if (!rememberPass) ui = ui.copy(savedUser = "", savedPass = "")
+        }
+    }
+
     fun logout() {
         viewModelScope.launch {
             val app = getApplication<android.app.Application>()
             runCatching { cn.anlele.checkin.push.NotifyResync.clearAll(app) }
             Repo.logout()
             store.clear()
-            ui = UiState(booting = false)
+            // 退出后仍留在登录页，主题/开关/记住的账号都还在（store.clear 只清身份）
+            ui = ui.copy(me = null, booting = false, busy = false, loginError = null)
         }
     }
 
