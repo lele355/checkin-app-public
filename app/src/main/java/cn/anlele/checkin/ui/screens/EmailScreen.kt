@@ -198,7 +198,7 @@ fun EmailScreen(vm: AppVm) {
             }
         } else {
             if (mails.isEmpty() && !loading) {
-                EmptyState(icon = "mail", title = "收件箱是空的", hint = "点右上角「同步」拉一次")
+                EmptyState(icon = "mail", title = "收件箱是空的")
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),

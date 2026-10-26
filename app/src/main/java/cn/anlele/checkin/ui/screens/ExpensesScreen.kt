@@ -39,6 +39,7 @@ import cn.anlele.checkin.data.Repo
 import cn.anlele.checkin.ui.components.AppCard
 import cn.anlele.checkin.ui.components.AppChip
 import cn.anlele.checkin.ui.components.AppField
+import cn.anlele.checkin.ui.components.DateField
 import cn.anlele.checkin.ui.components.EditSheet
 import cn.anlele.checkin.ui.components.GrowBar
 import cn.anlele.checkin.ui.components.GroupHead
@@ -337,7 +338,7 @@ private fun ExpenseEditor(vm: AppVm, initial: ExpenseDto?, onClose: () -> Unit, 
             }
         }
         Spacer(Modifier.height(14.dp))
-        AppField("日期", date, { date = it }, placeholder = "2026-10-23", supporting = "格式：年-月-日")
+        DateField("日期", date, { date = it })
         Spacer(Modifier.height(12.dp))
         AppField("备注", note, { note = it }, placeholder = "买了什么（可不填）")
     }

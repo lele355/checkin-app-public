@@ -112,8 +112,7 @@ fun HabitsScreen(vm: AppVm) {
     ) {
         item {
             PageHeadCard(
-                title = "习惯打卡",
-                hint = "每天点亮一个好习惯，连续天数就是你的坚持勋章。",
+                title = "打卡",
                 actions = {
                     ViewSwitch(
                         options = listOf("list" to "列表", "grid" to "卡片"),

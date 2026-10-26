@@ -90,7 +90,7 @@ fun MemoScreen(vm: AppVm) {
         item {
             PageHeadCard(
                 title = "备忘记事",
-                hint = "置顶的便签会出现在工作台首页。",
+                hint = "置顶的备忘会出现在工作台首页。",
                 actions = {
                     ViewSwitch(
                         options = listOf("list" to "列表", "grid" to "卡片"),

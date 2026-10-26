@@ -91,7 +91,7 @@ fun BoardScreen(vm: AppVm) {
     Column(Modifier.fillMaxSize()) {
         if (rows.isEmpty() && !loading) {
             Box(Modifier.weight(1f)) {
-                EmptyState(icon = "chat", title = "还没有人留言", hint = "说点什么吧")
+                EmptyState(icon = "chat", title = "还没有人留言")
             }
         } else {
             LazyColumn(
@@ -101,7 +101,7 @@ fun BoardScreen(vm: AppVm) {
 
             ) {
 
-                item { PageHeadCard(title = "留言板", hint = "小圈子的公开留言，能进来的都能看到。") }
+                item { PageHeadCard(title = "留言板", hint = "进来的人都能看到") }
                 items(rows.size) { i ->
                     val m = rows[i]
                     BoardCard(m, onDelete = {

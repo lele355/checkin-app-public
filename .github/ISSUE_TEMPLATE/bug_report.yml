@@ -1,0 +1,70 @@
+name: Bug 报告
+description: 崩溃、界面错位、功能不对
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。App 端的问题很依赖设备信息，麻烦填全一些。
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 期望的结果 vs 实际的结果。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: 设备与系统
+      placeholder: Pixel 7 / Android 16；或小米 13 / HyperOS 3
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: App 版本
+      description: 「我的」页底部能看到，形如 2.3.0（versionCode 5）。
+      placeholder: 2.3.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: theme
+    attributes:
+      label: 用的哪套主题
+      options:
+        - 不确定 / 默认
+        - editorial（杂志）
+        - neumorphism（新拟物）
+        - natural（自然有机）
+        - macos（毛玻璃暗色）
+        - clay（粘土）
+        - 与主题无关
+
+  - type: dropdown
+    id: notify
+    attributes:
+      label: 是否与通知有关
+      description: 通知问题几乎都是系统权限设置，选「是」的话请一并说明四项权限的状态。
+      options:
+        - '否'
+        - 是（通知不响 / 不准时 / 根本不出现）
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充
+      description: 截图、logcat 片段。注意先抹掉域名、账号与令牌。

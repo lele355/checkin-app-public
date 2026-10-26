@@ -85,7 +85,7 @@ fun StatsScreen(vm: AppVm) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            PageHeadCard(title = "统计年报", hint = "坚持的痕迹都替你记着。")
+            PageHeadCard(title = "统计")
         }
 
         // ---------- 计数 chips ----------

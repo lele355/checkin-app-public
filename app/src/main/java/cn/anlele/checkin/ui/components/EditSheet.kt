@@ -22,6 +22,11 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.anlele.checkin.ui.theme.palette
+import kotlinx.coroutines.delay
 
 /**
  * 通用「弹出卡片」编辑层 —— 对应网页里点「新建/编辑」弹出的那个 dialog。
@@ -86,8 +92,26 @@ fun EditSheet(
     }
 }
 
-/** 弹层底部的小号删除按钮 */
+/**
+ * 弹层底部的小号删除按钮。
+ *
+ * 一次点击不会直接删：先就地变成「确认删除」，3.5 秒内没有再点就退回。
+ * 与网页端 `data-confirm` 是同一套做法 —— 不弹对话框、不打断流程，
+ * 确认放在用户本来就要点的地方。
+ */
 @Composable
 fun SheetDelete(onClick: () -> Unit) {
-    TinyAction("删除", "trash-2", danger = true, onClick = onClick)
+    var armed by remember { mutableStateOf(false) }
+    LaunchedEffect(armed) {
+        if (armed) {
+            delay(3500)
+            armed = false
+        }
+    }
+    TinyAction(
+        text = if (armed) "确认删除" else "删除",
+        icon = "trash-2",
+        danger = true,
+        onClick = { if (armed) onClick() else armed = true },
+    )
 }

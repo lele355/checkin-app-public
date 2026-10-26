@@ -77,7 +77,7 @@ fun InvitesScreen(vm: AppVm) {
 
     ) {
 
-        item { PageHeadCard(title = "邀请码", hint = "本站不开放注册，新账号凭一次性邀请码进入，用完即失效。") }
+        item { PageHeadCard(title = "邀请码", hint = "注册需要一次性邀请码，用完即失效") }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

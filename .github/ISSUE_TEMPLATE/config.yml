@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 服务端仓库
+    url: https://github.com/Lele355/checkin-site-public
+    about: App 只是个客户端，接口都在服务端仓库里；数据相关的疑问多半那边有答案。
+  - name: 通知不响怎么办
+    url: https://github.com/Lele355/checkin-app-public#通知
+    about: 通知全靠本机定时，需要手动放行四项系统权限，README 的通知小节写了完整步骤。

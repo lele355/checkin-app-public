@@ -150,7 +150,7 @@ fun MainShell(vm: AppVm, me: MeDto) {
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = p.sideBar,
-                drawerShape = RoundedCornerShape(topEnd = 22.dp, bottomEnd = 22.dp),
+                drawerShape = RoundedCornerShape(topEnd = p.radiusCard, bottomEnd = p.radiusCard),
                 modifier = Modifier.width(292.dp),
             ) {
                 SidebarContent(

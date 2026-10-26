@@ -1,5 +1,14 @@
 package cn.anlele.checkin.ui.screens
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,10 +22,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -29,6 +41,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,7 +64,10 @@ import cn.anlele.checkin.ui.icons.AppIcons
 import cn.anlele.checkin.ui.theme.cardShape
 import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.palette
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 /**
  * AI 助手 —— 对话 + 建议单。
@@ -65,6 +84,10 @@ fun AiScreen(vm: AppVm) {
     var sending by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var showClear by remember { mutableStateOf(false) }
+    // 待发送图片：bmp 用来预览，data 是压缩后的 data URL（发给后端的就是它）
+    var pickedBmp by remember { mutableStateOf<Bitmap?>(null) }
+    var pickedData by remember { mutableStateOf<String?>(null) }
+    val ctx = LocalContext.current
 
     suspend fun load() {
         loading = true
@@ -79,14 +102,29 @@ fun AiScreen(vm: AppVm) {
 
     LaunchedEffect(Unit) { load() }
 
+    // 系统相册（PickVisualMedia：Android 13+ 走照片选择器，低版本自动回落文档选择器，
+    // 两条路都不需要申请读相册权限）
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            // 解码 + 压缩放 IO 线程：手机原图动辄 3~5MB，主线程干这个必卡
+            val loaded = withContext(Dispatchers.IO) { loadCompressed(ctx, uri) }
+            if (loaded == null) vm.toast("这张图片读不出来，换一张试试")
+            else { pickedBmp = loaded.bmp; pickedData = loaded.dataUrl }
+        }
+    }
+
     fun send() {
         val t = text.trim()
-        if (t.isEmpty() || sending) return
+        val img = pickedData
+        if ((t.isEmpty() && img == null) || sending) return     // 纯图也能发
         text = ""
+        pickedBmp = null
+        pickedData = null
         sending = true
         scope.launch {
             try {
-                page = Repo.aiSend(t)
+                page = Repo.aiSend(t, img)
             } catch (e: ApiException) {
                 vm.toast(e.message)
             } catch (e: Exception) {
@@ -102,7 +140,7 @@ fun AiScreen(vm: AppVm) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             PageHeadCard(
                 title = "AI 助手",
-                hint = "可以问问题，也可以直接说「明天下午三点开会」「记一笔午饭 15 元」—— AI 会给建议单，你点了确认才真正写入。",
+                hint = "说「明天下午三点开会」或「午饭 15 元」就能直接建；点左下角回形针可发课表截图。AI 只出建议，确认后才写入。",
                 actions = { TinyAction("清空历史", "trash-2") { showClear = true } },
             )
             val q = page?.quota
@@ -159,20 +197,66 @@ fun AiScreen(vm: AppVm) {
             }
         }
 
-        Row(
+        Column(
             Modifier
                 .fillMaxWidth()
                 .background(p.card)
                 .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom,
+                .imePadding(),
         ) {
-            Box(Modifier.weight(1f)) {
-                AppField("", text, { text = it }, placeholder = "说点什么…", singleLine = false, minLines = 1, maxLines = 4)
+            // 待发送图片预览（右上角 ✕ 可撤掉）
+            val bmp = pickedBmp
+            if (bmp != null) {
+                Row(
+                    Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = "待发送图片",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(RoundedCornerShape(10.dp)),
+                        )
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = 7.dp, y = (-7).dp)
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(p.card)
+                                .clickable { pickedBmp = null; pickedData = null },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(AppIcons["x"], "移除图片", Modifier.size(11.dp), tint = p.textSub)
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text("会随这条消息一起发出去", fontSize = 11.sp, color = p.textWeak)
+                }
             }
-            Spacer(Modifier.width(6.dp))
-            IconBtn("send", "发送", size = 44.dp, tint = if (text.isBlank() || sending) p.textWeak else p.accent) { send() }
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                IconBtn("paperclip", "添加图片", size = 44.dp, tint = if (sending) p.textWeak else p.textSub) {
+                    picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
+                Spacer(Modifier.width(6.dp))
+                Box(Modifier.weight(1f)) {
+                    AppField("", text, { text = it }, placeholder = "说点什么，或发张图让我看看…", singleLine = false, minLines = 1, maxLines = 4)
+                }
+                Spacer(Modifier.width(6.dp))
+                IconBtn(
+                    "send", "发送", size = 44.dp,
+                    tint = if ((text.isBlank() && pickedData == null) || sending) p.textWeak else p.accent,
+                ) { send() }
+            }
         }
     }
 
@@ -262,4 +346,32 @@ private fun ActionCard(a: AiActionDto, onConfirm: () -> Unit) {
             Text(a.summary, fontSize = 12.5.sp, color = p.textSub)
         }
     }
+}
+
+/** 选中的图片：压缩后的位图（预览用）+ data URL（发给后端的就是这个） */
+private data class PickedImage(val bmp: Bitmap, val dataUrl: String)
+
+/**
+ * 读相册图片并压缩：最长边降到 1600px 以内、JPEG 0.82 —— 与网页端同一标准。
+ * 手机原图 3~5MB 一般压到 150~400KB，离服务端 5MB 上限很远。
+ * 先只读尺寸再按 2 的幂降采样（BitmapFactory 原生支持，比解码后缩放省内存），
+ * 全程在 IO 线程调用（见调用点 withContext(Dispatchers.IO)）。
+ */
+private fun loadCompressed(ctx: Context, uri: Uri): PickedImage? = try {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1600) sample *= 2
+
+    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+    val bmp = ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+        ?: return null
+
+    val out = ByteArrayOutputStream()
+    bmp.compress(Bitmap.CompressFormat.JPEG, 82, out)
+    val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    PickedImage(bmp, "data:image/jpeg;base64,$b64")
+} catch (e: Exception) {
+    null
 }

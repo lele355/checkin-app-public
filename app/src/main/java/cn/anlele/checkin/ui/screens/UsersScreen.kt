@@ -86,7 +86,7 @@ fun UsersScreen(vm: AppVm) {
 
     ) {
 
-        item { PageHeadCard(title = "用户管理", hint = "建号、改角色、启停、重置密码 —— 重置后会生成一次性新密码。") }
+        item { PageHeadCard(title = "用户管理", hint = "重置密码会生成一次性新密码") }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("共 ${rows.size} 个账号", fontSize = 12.5.sp, color = p.textWeak, modifier = Modifier.weight(1f))

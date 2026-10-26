@@ -25,7 +25,10 @@ object Dates {
     fun parse(s: String?): Date? {
         if (s.isNullOrBlank()) return null
         val patterns = arrayOf(
-            "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"
+            "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd",
+            // 后端偶有带毫秒 / 带时区后缀的写法（如 2026-10-26T09:00:00.000Z），
+            // 不解就整条成空 —— 日程时间直接不显示。多备两个格式兜住。
+            "yyyy-MM-dd'T'HH:mm:ss.SSS", "yyyy-MM-dd'T'HH:mm:ssXXX", "yyyy-MM-dd'T'HH:mm:ss'Z'",
         )
         for (p in patterns) {
             try {
@@ -122,7 +125,23 @@ object Dates {
     fun daysBetween(from: String?, to: String?): Int {
         val a = parse(from) ?: return 0
         val b = parse(to) ?: return 0
-        return ((b.time - a.time) / 86_400_000L).toInt()
+        // 不能用 (b - a) / 86_400_000：夏令时切换那天只有 23 小时，
+        // 除下来会差一天（海外时区的用户会看到「还剩 2 天」变成 1 天）。
+        // 改成按「公历日序号」相减，纯整数运算，与时区、夏令时无关。
+        val ca = Calendar.getInstance().apply { time = a }
+        val cb = Calendar.getInstance().apply { time = b }
+        return (jdn(cb) - jdn(ca)).toInt()
+    }
+
+    /** 公历 → 儒略日序号（只取年月日，不含时分秒，与时区无关） */
+    private fun jdn(c: Calendar): Long {
+        val y = c.get(Calendar.YEAR).toLong()
+        val m = (c.get(Calendar.MONTH) + 1).toLong()
+        val d = c.get(Calendar.DAY_OF_MONTH).toLong()
+        val a = (14 - m) / 12
+        val yy = y + 4800 - a
+        val mm = m + 12 * a - 3
+        return d + (153 * mm + 2) / 5 + 365 * yy + yy / 4 - yy / 100 + yy / 400 - 32045
     }
 
     fun weekdayIndex(dateStr: String?): Int {
@@ -131,11 +150,13 @@ object Dates {
         return if (dow == Calendar.SUNDAY) 7 else dow - 1     // 1=周一 … 7=周日
     }
 
-    /** 当前第几周（学期起始周一为第 1 周） */
+    /** 当前第几周（学期起始周一为第 1 周）。
+     *  开学前（diff < 0）一律返回 1 —— 以前负数整除会算出第 0 周甚至第 -1 周，
+     *  课程表标题就会出现「第 0 教学周」。 */
     fun weekOf(semesterStart: String?, dateStr: String = today()): Int {
-        val start = parse(semesterStart) ?: return 1
-        val target = parse(dateStr) ?: return 1
-        val diff = ((target.time - start.time) / 86_400_000L).toInt()
+        if (semesterStart.isNullOrBlank()) return 1
+        val diff = daysBetween(semesterStart, dateStr)
+        if (diff < 0) return 1
         return (diff / 7) + 1
     }
 
@@ -152,4 +173,46 @@ object Dates {
 
     fun money(v: Double): String =
         if (v == v.toLong().toDouble()) "%.0f".format(v) else "%.2f".format(v)
+
+    // ==================== 日期选择器用的辅助 ====================
+
+    /** 2026-10-26 → 「2026年10月26日 周一」（选择器触发器上显示用） */
+    fun cnDate(dateStr: String?): String {
+        val d = parse(dateStr) ?: return ""
+        val base = SimpleDateFormat("yyyy年M月d日", Locale.CHINA).format(d)
+        return "$base ${weekdayCn(dateStr)}"
+    }
+
+    /**
+     * 月历网格（周一开头，6 行 × 7 列）：元素是 yyyy-MM-dd，null 表示补位空格。
+     * 和 [monthGrid] 的区别是周起点：这里周一开头，跟着国内日历习惯走
+     * （日程页那张月历用周日开头，两处并存，别互相替换）。
+     */
+    fun monthGridMon(ym: String): List<String?> {
+        val first = parse("$ym-01") ?: return emptyList()
+        val c = Calendar.getInstance().apply { time = first }
+        val daysInMonth = c.getActualMaximum(Calendar.DAY_OF_MONTH)
+        val dow = c.get(Calendar.DAY_OF_WEEK)          // 1=周日 … 7=周六
+        val offset = (dow + 5) % 7                      // 周一=0 … 周日=6
+        val cells = ArrayList<String?>(42)
+        repeat(offset) { cells.add(null) }
+        for (d in 1..daysInMonth) cells.add(String.format(Locale.CHINA, "%s-%02d", ym, d))
+        while (cells.size < 42) cells.add(null)
+        return cells
+    }
+
+    /** 月历表头，与 [monthGridMon] 的列顺序对应 */
+    val WEEK_HEAD: List<String> = listOf("一", "二", "三", "四", "五", "六", "日")
+
+    /**
+     * 取该日期所在周的周一。
+     * 学期起始日只认「第一周的周一」，让用户随手选一天、系统自动吸附过去，
+     * 比要求用户自己算「那天是周几」可靠得多。
+     */
+    fun mondayOf(dateStr: String): String {
+        val d = parse(dateStr) ?: return dateStr
+        val dow = Calendar.getInstance().apply { time = d }.get(Calendar.DAY_OF_WEEK)
+        return addDays(dateStr, -((dow + 5) % 7))
+    }
+
 }

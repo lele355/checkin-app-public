@@ -43,7 +43,9 @@ import cn.anlele.checkin.data.ScheduleDto
 import cn.anlele.checkin.ui.components.AppCard
 import cn.anlele.checkin.ui.components.AppChip
 import cn.anlele.checkin.ui.components.AppField
+import cn.anlele.checkin.ui.components.DateField
 import cn.anlele.checkin.ui.components.EditSheet
+import cn.anlele.checkin.ui.components.TimeField
 import cn.anlele.checkin.ui.components.GroupHead
 import cn.anlele.checkin.ui.components.HeadButton
 import cn.anlele.checkin.ui.components.IconBtn
@@ -122,7 +124,6 @@ fun ScheduleScreen(vm: AppVm) {
             item {
                 PageHeadCard(
                     title = "日程",
-                    hint = if (view == "列表") "按时间排序，保留最近 7 天已过的便于回看。" else "点日期看当天安排，右下角「今」一键回到今天。",
                     actions = {
                         ViewSwitch(
                             options = listOf("list" to "列表", "calendar" to "日历"),
@@ -141,7 +142,7 @@ fun ScheduleScreen(vm: AppVm) {
             if (view == "列表") {
                 val groups = list.groupBy { groupOf(it) }
                 if (list.isEmpty() && !loading) {
-                    item { AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) { SiteEmpty("📅", "还没有日程，点右上角新建一个吧。") } }
+                    item { AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) { SiteEmpty("📅", "还没有日程") } }
                 }
                 GROUP_ORDER.forEach { name ->
                     val rows = groups[name].orEmpty().sortedBy { it.startAt }
@@ -388,20 +389,14 @@ private fun ScheduleEditor(
     ) {
         AppField("标题", title, { title = it }, placeholder = "要做什么")
         Spacer(Modifier.height(12.dp))
-        AppField("日期", date, { date = it }, placeholder = "2026-10-24", supporting = "格式：年-月-日")
+        DateField("日期", date, { date = it })
         Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            AppChip("全天", selected = allDay) { allDay = !allDay }
-            if (!allDay) {
-                Spacer(Modifier.width(12.dp))
-                AppChip("$startTime → $endTime", selected = true)
-            }
-        }
+        AppChip("全天", selected = allDay) { allDay = !allDay }
         if (!allDay) {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AppField("开始", startTime, { startTime = it }, modifier = Modifier.weight(1f), placeholder = "09:00")
-                AppField("结束", endTime, { endTime = it }, modifier = Modifier.weight(1f), placeholder = "10:00")
+                TimeField("开始", startTime, { startTime = it }, Modifier.weight(1f))
+                TimeField("结束", endTime, { endTime = it }, Modifier.weight(1f))
             }
         }
         Spacer(Modifier.height(12.dp))

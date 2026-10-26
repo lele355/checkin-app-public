@@ -38,6 +38,7 @@ import cn.anlele.checkin.data.LoveNoteDto
 import cn.anlele.checkin.data.Repo
 import cn.anlele.checkin.ui.components.AppCard
 import cn.anlele.checkin.ui.components.AppField
+import cn.anlele.checkin.ui.components.DateField
 import cn.anlele.checkin.ui.components.EditSheet
 import cn.anlele.checkin.ui.components.IconBtn
 import cn.anlele.checkin.ui.components.PageHeadCard
@@ -221,8 +222,8 @@ private fun CoupleSettingSheet(vm: AppVm, d: CouplePageDto?, onClose: () -> Unit
             }
         },
     ) {
-        AppField("标题", title, { title = it }, placeholder = "乐酱 & 恬恬")
+        AppField("标题", title, { title = it }, placeholder = "A & B")
         Spacer(Modifier.height(12.dp))
-        AppField("在一起的第一天", start, { start = it }, placeholder = "2024-05-20", supporting = "格式：年-月-日")
+        DateField("在一起的第一天", start, { start = it })
     }
 }

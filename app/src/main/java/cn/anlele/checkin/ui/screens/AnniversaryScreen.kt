@@ -37,6 +37,7 @@ import cn.anlele.checkin.data.Repo
 import cn.anlele.checkin.ui.components.AppCard
 import cn.anlele.checkin.ui.components.AppChip
 import cn.anlele.checkin.ui.components.AppField
+import cn.anlele.checkin.ui.components.DateField
 import cn.anlele.checkin.ui.components.EditSheet
 import cn.anlele.checkin.ui.components.EmptyState
 import cn.anlele.checkin.ui.components.PageHeadCard
@@ -71,7 +72,7 @@ fun AnniversaryScreen(vm: AppVm) {
     LaunchedEffect(Unit) { load() }
 
     if (rows.isEmpty() && !loading) {
-        EmptyState(icon = "heart", title = "还没有纪念日", hint = "记住重要的日子") {
+        EmptyState(icon = "heart", title = "还没有纪念日") {
             PrimaryButton("添加纪念日", icon = "plus") { editing = null; editorOpen = true }
         }
     } else {
@@ -82,7 +83,7 @@ fun AnniversaryScreen(vm: AppVm) {
 
         ) {
 
-            item { PageHeadCard(title = "纪念日", hint = "重要的日子都有倒计时，每年重复的会自动滚到下一年。") }
+            item { PageHeadCard(title = "纪念日") }
             items(rows.size) { i ->
                 val a = rows[i]
                 AnnivCard(a) { editing = a; editorOpen = true }
@@ -186,7 +187,7 @@ private fun AnnivEditor(vm: AppVm, initial: AnnivDto?, onClose: () -> Unit, onSa
     ) {
         AppField("名称", title, { title = it }, placeholder = "在一起纪念日 / 妈妈生日")
         Spacer(Modifier.height(12.dp))
-        AppField("日期", date, { date = it }, placeholder = "2026-10-24", supporting = "格式：年-月-日")
+        DateField("日期", date, { date = it })
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             AppChip("每年重复", selected = repeat) { repeat = true }

@@ -89,7 +89,7 @@ fun ExportScreen(vm: AppVm) {
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        PageHeadCard(title = "数据导出", hint = "导出的是你自己的数据，不含别人的；文件先存手机再走系统分享。")
+        PageHeadCard(title = "数据导出", hint = "只导出你自己的数据，不含别人的")
         AppCard(Modifier.fillMaxWidth(), padding = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {

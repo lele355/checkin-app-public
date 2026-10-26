@@ -45,16 +45,19 @@ import cn.anlele.checkin.data.Repo
 import cn.anlele.checkin.ui.components.AppCard
 import cn.anlele.checkin.ui.components.AppChip
 import cn.anlele.checkin.ui.components.AppField
+import cn.anlele.checkin.ui.components.DateField
 import cn.anlele.checkin.ui.components.EditSheet
 import cn.anlele.checkin.ui.components.GroupHead
 import cn.anlele.checkin.ui.components.HeadButton
 import cn.anlele.checkin.ui.components.IconBtn
+import cn.anlele.checkin.ui.components.NumberField
 import cn.anlele.checkin.ui.components.PageHeadCard
 import cn.anlele.checkin.ui.components.PrimaryButton
 import cn.anlele.checkin.ui.components.SheetDelete
 import cn.anlele.checkin.ui.components.SiteEmpty
 import cn.anlele.checkin.ui.components.StaggerIn
 import cn.anlele.checkin.ui.components.TinyAction
+import cn.anlele.checkin.ui.components.WeekField
 import cn.anlele.checkin.ui.icons.AppIcons
 import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.palette
@@ -461,11 +464,11 @@ private fun CourseEditor(vm: AppVm, initial: CourseDto?, periodCount: Int, onClo
         }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            AppField("开始节", start.toString(), { start = it.toIntOrNull() ?: start }, modifier = Modifier.weight(1f))
-            AppField("结束节", end.toString(), { end = it.toIntOrNull() ?: end }, modifier = Modifier.weight(1f))
+            NumberField("开始节", start, 1..periodCount.coerceAtLeast(1), { start = it }, Modifier.weight(1f))
+            NumberField("结束节", end, 1..periodCount.coerceAtLeast(1), { end = it }, Modifier.weight(1f))
         }
         Spacer(Modifier.height(12.dp))
-        AppField("周次", weeks, { weeks = it }, placeholder = "1-16 / 单周 / 1-8,10-16")
+        WeekField("周次", weeks, { weeks = it })
         Spacer(Modifier.height(14.dp))
         Text("类别", fontSize = 12.5.sp, color = p.textSub)
         Spacer(Modifier.height(8.dp))
@@ -505,13 +508,18 @@ private fun CourseSettingsSheet(vm: AppVm, data: CoursesPageDto?, onClose: () ->
         },
     ) {
         Text(
-            "当前 ${data?.periods?.size ?: 12} 节，节次时间沿用默认作息（与网站一致）。学期起始日填「开学第一周的周一」，周次就从这天算起。",
+            "当前 ${data?.periods?.size ?: 12} 节",
             fontSize = 12.5.sp,
             color = palette.textSub,
             lineHeight = 19.sp,
         )
         Spacer(Modifier.height(12.dp))
-        AppField("学期起始日", startDate, { startDate = it }, placeholder = "2026-09-01", supporting = "格式：年-月-日")
+        DateField("学期起始日", startDate, { picked ->
+            // 学期起始只认周一：随手选哪天都行，这里自动吸附到所在周的周一
+            val mon = Dates.mondayOf(picked)
+            startDate = mon
+            if (mon != picked) vm.toast("已对齐到该周周一")
+        })
         Spacer(Modifier.height(14.dp))
         GroupHead("节次时间")
         val periods = data?.periods.orEmpty()

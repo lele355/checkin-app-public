@@ -79,7 +79,7 @@ fun RemindersScreen(vm: AppVm, go: (String) -> Unit) {
     }
 
     if (data.items.isEmpty() && data.todayHabitTotal == 0) {
-        EmptyState(icon = "bell", title = "近期没有要提醒的事", hint = "安心忙别的吧")
+        EmptyState(icon = "bell", title = "近期没有要提醒的事")
         return
     }
 
@@ -90,7 +90,7 @@ fun RemindersScreen(vm: AppVm, go: (String) -> Unit) {
 
     ) {
 
-        item { PageHeadCard(title = "提醒中心", hint = "把散在各模块的近期事项聚成一张清单，点一条直达对应模块。") }
+        item { PageHeadCard(title = "提醒", hint = "点一条直达对应模块") }
         if (data.todayHabitTotal > 0) {
             item {
                 AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(15.dp), onClick = { go("habits") }) {

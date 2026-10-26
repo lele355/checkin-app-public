@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -81,14 +82,21 @@ fun PageHeadCard(
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val p = palette
-    Box(
-        modifier
-            .fillMaxWidth()
-            .clip(p.cardShape())
-            .background(p.card)
-            .then(if (p.border != Color.Transparent) Modifier.border(1.dp, p.border, p.cardShape()) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-    ) {
+    // 材质与 AppCard 保持一致：粘土要渐变、新拟物要双光源阴影、暗色要 1px 高光边。
+    // 页头卡以前只做了纯色 + 边框，换到 clay 主题时会突然变成一块「没上釉的白板」，
+    // 和下面的卡片明显不是一套东西。
+    var m = modifier.fillMaxWidth()
+    if (p.neumorph) {
+        m = m.shadow(10.dp, p.cardShape(), clip = false, ambientColor = p.borderStrong, spotColor = Color.White)
+    } else if (p.isDark) {
+        m = m.shadow(0.dp, p.cardShape(), clip = false)
+    }
+    m = m.clip(p.cardShape())
+    m = if (p.cardBrush != null) m.background(p.cardBrush, p.cardShape())
+        else m.background(p.card, p.cardShape())
+    if (p.border != Color.Transparent) m = m.border(1.dp, p.border, p.cardShape())
+
+    Box(m.padding(horizontal = 16.dp, vertical = 14.dp)) {
         Column {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (titleSlot != null) {

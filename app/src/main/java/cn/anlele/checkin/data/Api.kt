@@ -40,9 +40,11 @@ object Api {
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        // 读超时给到 120s：AI 带图片的那一轮要识别整张课表再吐几十条工具调用，
+        // 后端自己也放到 120s 了，客户端比服务端短会导致「服务端还在算，App 先报超时」
+        .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 

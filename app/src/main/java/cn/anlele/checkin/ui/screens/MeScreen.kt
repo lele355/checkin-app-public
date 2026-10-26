@@ -139,7 +139,7 @@ fun MeScreen(vm: AppVm, me: MeDto, onPrefs: () -> Unit, go: (String) -> Unit) {
                         Spacer(Modifier.height(12.dp))
                         AppField("登录名", me.username, {}, enabled = false, supporting = "登录名不可自行修改，需要改请联系管理员。")
                         Spacer(Modifier.height(11.dp))
-                        AppField("昵称", name, { name = it }, placeholder = "安家乐")
+                        AppField("昵称", name, { name = it }, placeholder = "管理员")
                         Spacer(Modifier.height(11.dp))
                         AppField("联系邮箱（选填）", email, { email = it }, placeholder = "you@example.com")
                         Spacer(Modifier.height(11.dp))
@@ -236,7 +236,7 @@ fun MeScreen(vm: AppVm, me: MeDto, onPrefs: () -> Unit, go: (String) -> Unit) {
                     Spacer(Modifier.height(6.dp))
                     // 法规要求：在 App 显著位置标明备案编号，并在编号下方链接备案系统查询页。
                     // 注意 ICP 号用的是「-2A」（App 的号），不是网站的「-1」。
-                    BeianLine("ICP 备案", "陕ICP备2026029457号-2A", "https://beian.miit.gov.cn/")
+                    BeianLine("ICP 备案", "京ICP备00000000号-2A", "https://beian.miit.gov.cn/")
                     BeianLine(
                         "公安备案", "陕公网安备61010302001655号",
                         "https://beian.mps.gov.cn/#/query/webSearch?code=61010302001655",

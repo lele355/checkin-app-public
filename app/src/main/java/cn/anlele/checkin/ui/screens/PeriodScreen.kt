@@ -31,6 +31,7 @@ import cn.anlele.checkin.data.PeriodRecordDto
 import cn.anlele.checkin.data.Repo
 import cn.anlele.checkin.ui.components.AppCard
 import cn.anlele.checkin.ui.components.AppField
+import cn.anlele.checkin.ui.components.DateField
 import cn.anlele.checkin.ui.components.EditSheet
 import cn.anlele.checkin.ui.components.EmptyState
 import cn.anlele.checkin.ui.components.PageHeadCard
@@ -193,9 +194,9 @@ private fun PeriodEditor(vm: AppVm, initial: PeriodRecordDto?, onClose: () -> Un
             }
         },
     ) {
-        AppField("开始日期", start, { start = it }, placeholder = "2026-10-20")
+        DateField("开始日期", start, { start = it })
         Spacer(Modifier.height(12.dp))
-        AppField("结束日期", end, { end = it }, placeholder = "留空表示还在进行", supporting = "格式：年-月-日")
+        DateField("结束日期", end, { end = it }, placeholder = "还在进行", clearable = true)
         Spacer(Modifier.height(12.dp))
         AppField("备注", note, { note = it }, placeholder = "可不填")
     }
