@@ -1,6 +1,7 @@
 package cn.anlele.checkin.ui.components
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -418,4 +419,31 @@ fun SwapIn(content: @Composable () -> Unit) {
     val a by animateFloatAsState(if (show) 1f else 0f, tween(280), label = "swap-a")
     val dy by animateFloatAsState(if (show) 0f else 6f, tween(280), label = "swap-y")
     Box(Modifier.graphicsLayer { alpha = a; translationY = dy }) { content() }
+}
+
+/**
+ * 转圈图标 —— 用图标旋转而不是 [CircularProgressIndicator]。
+ *
+ * 理由：这个 App 的 loader 出现在气泡、按钮、列表行各处，尺寸都很小（12~16dp）。
+ * Material 的进度圈在小尺寸下描边会显得又粗又糊，和全站 2px 线性图标不是一套东西。
+ * 用同一套 Lucide 缺口圆环 + 匀速旋转 900ms，视觉上就是「线性图标在转」。
+ */
+@Composable
+fun Spinner(size: Dp = 14.dp, tint: Color? = null, stroke: Dp = 2.dp) {
+    val p = palette
+    val t = rememberInfiniteTransition(label = "spin")
+    val deg by t.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
+        label = "spinDeg",
+    )
+    Icon(
+        AppIcons["loader"],
+        null,
+        Modifier
+            .size(size)
+            .graphicsLayer { rotationZ = deg },
+        tint = tint ?: p.accent,
+    )
 }

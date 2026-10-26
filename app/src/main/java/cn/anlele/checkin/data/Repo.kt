@@ -18,6 +18,8 @@ object Repo {
         val accent: String? = null,
         val tone: String? = null,
         val navHidden: List<String>? = null,
+        /** 工作台布局：{pinned,order,hidden} 序列化后的字符串，与网页端同一个字段、同一份数据 */
+        val dashboardLayout: String? = null,
         val displayName: String? = null,
         val email: String? = null,
         val signature: String? = null,
@@ -48,6 +50,8 @@ object Repo {
         val endPeriod: Int,
         val weeksText: String = "1-16",
         val category: String = "other",
+        /** 色板键；空串 = 改回「自动按课程名分配」（服务端把空串当作合法意图，不是「没传」） */
+        val color: String = "",
     )
     @Serializable data class SlotReq(val s: String, val e: String)
     @Serializable data class CourseSettingsReq(val semesterStart: String? = null, val periods: List<SlotReq>? = null)
@@ -99,6 +103,11 @@ object Repo {
 
     suspend fun savePrefs(req: PrefsReq): MeDto =
         Api.put<MeWrap>("/me/prefs", enc(req, PrefsReq.serializer())).user
+
+    /// 单独存工作台布局。别复用 savePrefs 传一堆 null：
+    /// 服务端对 `null` 的语义是「这一项不改」，只传 dashboardLayout 才是干净的局部更新。
+    suspend fun saveDashboardLayout(json: String): MeDto =
+        savePrefs(PrefsReq(dashboardLayout = json))
 
     suspend fun changePassword(old: String, new: String): MeDto =
         Api.post<MeWrap>("/me/password", enc(PasswordReq(old, new), PasswordReq.serializer())).user

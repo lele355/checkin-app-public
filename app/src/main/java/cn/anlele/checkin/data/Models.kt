@@ -2,7 +2,10 @@ package cn.anlele.checkin.data
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 
 /** 统一响应包：{"ok":true,"data":…} 或 {"ok":false,"error":"…"} */
 @Serializable
@@ -182,6 +185,145 @@ data class DashboardDto(
     val showSampleBanner: Boolean = false,
 )
 
+/**
+ * 工作台布局。三组 id 互斥，与网页端 `dashboard.js` 的 `{pinned, order, hidden}` 同一份数据
+ * （存在 Users.DashboardLayout 这一个字段里），所以手机上调好的布局在网页上打开也是同一个。
+ *
+ * 【为什么是三个数组而不是每条卡片一个属性】
+ * 顺序是「用户意图」，不是由某个属性派生的：置顶区内部、普通区内部都各自有序，
+ * 用数组下标表达最直接；也不需要为不存在的卡片留占位，网页端 normalize 会再补一遍
+ * （权限没开的卡片在 App 上渲染不出来，但布局里留着，回到网页还在）。
+ */
+@Serializable
+data class DashLayout(
+    val pinned: List<String> = emptyList(),
+    val order: List<String> = emptyList(),
+    val hidden: List<String> = emptyList(),
+) {
+    fun isPinned(id: String) = pinned.contains(id)
+    fun isHidden(id: String) = hidden.contains(id)
+
+    /**
+     * 按布局排出「该渲染哪些卡片、什么顺序」。
+     * @param defaults 本机当前能渲染的卡片 id（按默认顺序）。布局里没有的一律追加到普通区末尾 ——
+     *   新加的卡片（或换了权限后新出现的卡片）不该因为布局是旧的就被藏起来。
+     */
+    fun arrange(defaults: List<String>): List<String> {
+        val out = ArrayList<String>(defaults.size)
+        for (id in pinned + order) if (id in defaults && id !in out && id !in hidden) out.add(id)
+        for (id in defaults) if (id !in out && id !in hidden) out.add(id)
+        return out
+    }
+
+    /** 置顶 / 取消置顶：置顶进置顶区最前，取消后回普通区最前（与网页端 togglePin 一致） */
+    fun togglePin(id: String): DashLayout {
+        val wasPinned = pinned.contains(id)
+        val p = pinned.toMutableList().also { it.remove(id) }
+        val o = order.toMutableList().also { it.remove(id) }
+        val h = hidden.toMutableList().also { it.remove(id) }
+        if (wasPinned) o.add(0, id) else p.add(0, id)
+        return copy(pinned = p, order = o, hidden = h)
+    }
+
+    /** 显示 / 隐藏：恢复显示进普通区末尾，隐藏进隐藏区末尾 */
+    fun setVisible(id: String, visible: Boolean): DashLayout {
+        val p = pinned.toMutableList().also { it.remove(id) }
+        val o = order.toMutableList().also { it.remove(id) }
+        val h = hidden.toMutableList().also { it.remove(id) }
+        if (visible) o.add(id) else h.add(id)
+        return copy(pinned = p, order = o, hidden = h)
+    }
+
+    /** 上移 / 下移（只在自己所属的那一组里挪，不会跨区串位） */
+    fun move(id: String, delta: Int): DashLayout {
+        val inPinned = pinned.contains(id)
+        val list = if (inPinned) pinned else order
+        val i = list.indexOf(id)
+        if (i < 0) return this
+        val j = i + delta
+        if (j < 0 || j >= list.size) return this
+        val moved = list.toMutableList()
+        val t = moved[i]; moved[i] = moved[j]; moved[j] = t
+        return if (inPinned) copy(pinned = moved) else copy(order = moved)
+    }
+
+    /** 只留白名单内的 id，并保证三组互斥（同一条 id 出现在两组里会让排序逻辑打结） */
+    fun clean(): DashLayout {
+        val seen = HashSet<String>()
+        fun one(a: List<String>) = a.filter { it in Known && seen.add(it) }
+        return DashLayout(one(pinned), one(order), one(hidden))
+    }
+
+    /**
+     * 把「这台设备能渲染、但布局里没提到」的卡片补进普通区末尾。
+     *
+     * 为什么必须补：布局是稀疏存储 —— 用户只点过两张卡，存的就只有那两张。
+     * 剩下十来张靠 [arrange] 在渲染时兜底追加；但**面板是直接读这三个数组的**，
+     * 不补的话面板里就只有被点过的那几张，用户再也没法把别的卡排序或隐藏。
+     * （网页端 dashboard.js 的 normalize() 做的也是这件事。）
+     */
+    fun fill(defaults: List<String>): DashLayout {
+        val seen = HashSet<String>(pinned.size + order.size + hidden.size)
+        seen.addAll(pinned); seen.addAll(order); seen.addAll(hidden)
+        val extra = defaults.filter { it !in seen }
+        return if (extra.isEmpty()) this else copy(order = order + extra)
+    }
+
+    /**
+     * 只留「当前能渲染」的 id。
+     *
+     * 用途：面板只应列出用户看得见的卡片 —— 否则「情侣空间」这类条件卡（没数据时不渲染）
+     * 会以「开着」的开关出现在面板里，而屏幕上根本没有它，看着像 bug。
+     * 副作用：一张当时渲染不出来的卡如果被隐藏过，这次保存后就不再是隐藏状态（等它有数据了
+     * 会以普通卡片出现）。这比「面板里列一堆看不见的东西」代价小，而且能自愈。
+     */
+    fun prune(keep: List<String>): DashLayout {
+        if (keep.isEmpty()) return DashLayout()
+        val allow = keep.toHashSet()
+        return DashLayout(
+            pinned = pinned.filter { it in allow },
+            order = order.filter { it in allow },
+            hidden = hidden.filter { it in allow },
+        )
+    }
+
+    companion object {
+        /**
+         * 卡片 id 白名单：与网页端 `Preferences.DashboardCards` 一一对应。
+         * build / admin 这两张卡 App 里没有（网页端才渲染），但**必须留在白名单里** ——
+         * 否则 App 存一次布局就把它们从数组里剔掉了，回到网页端会被 normalize 追加到普通区末尾，
+         * 用户排好的位置就丢了。
+         */
+        val Known = listOf(
+            "hello", "reminders", "habits", "courses", "schedule", "memo",
+            "anniversary", "email", "board", "expense", "couples", "period",
+            "build", "admin",
+        )
+
+        /**
+         * 从 MeDto.dashboardLayout（JsonElement?）解析。
+         * 服务端正常情况下给的是对象，但历史数据/中转层可能把它当字符串塞回来，
+         * 两种都得认，否则用户会看到「布局突然回到默认」。
+         */
+        fun from(el: JsonElement?): DashLayout = when {
+            el == null || el is JsonNull -> DashLayout()
+            el is JsonPrimitive -> parse(el.content)
+            else -> parse(el.toString())
+        }
+
+        /** 解析服务端存的 JSON（坏数据 / 空串 = 全默认布局，不能因此让工作台白屏） */
+        fun parse(json: String?): DashLayout {
+            if (json.isNullOrBlank()) return DashLayout()
+            return runCatching {
+                Json { ignoreUnknownKeys = true; isLenient = true }
+                    .decodeFromString<DashLayout>(json).clean()
+            }.getOrElse { DashLayout() }
+        }
+
+        fun encode(l: DashLayout): String = Json.encodeToString(serializer(), l)
+    }
+}
+
 // ---------- 列表页 ----------
 @Serializable
 data class ListDto<T>(val items: List<T> = emptyList(), val hasMore: Boolean = false)
@@ -255,6 +397,8 @@ data class CourseDto(
     val weeksText: String = "",
     val weeksLabel: String = "",
     val category: String = "other",
+    /** 色板键（violet / blue / …）。空串 = 按课程名自动分配，同名自动同色 */
+    val color: String = "",
 )
 
 @Serializable
@@ -562,6 +706,8 @@ data class VersionDto(
     val versionCode: Int = 0,
     val url: String = "",
     val notes: String = "",
+    /** App 备案号（陕ICP备…号-2A）。服务端下发而不是写死在 APK 里：补正换号时不用重新发版 */
+    val beiAn: String = "",
 )
 
 @Serializable

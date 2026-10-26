@@ -62,13 +62,17 @@ import androidx.compose.ui.unit.sp
 import cn.anlele.checkin.AppVm
 import cn.anlele.checkin.R
 import cn.anlele.checkin.data.Api
+import cn.anlele.checkin.data.Beian
+import cn.anlele.checkin.data.SavedAccount
 import cn.anlele.checkin.ui.components.BannerBar
 import cn.anlele.checkin.ui.components.BannerTone
 import cn.anlele.checkin.ui.components.PrimaryButton
+import cn.anlele.checkin.ui.components.Spinner
 import cn.anlele.checkin.ui.icons.AppIcons
 import cn.anlele.checkin.ui.theme.AppTheme
 import cn.anlele.checkin.ui.theme.Palette
 import cn.anlele.checkin.ui.theme.chipShape
+import cn.anlele.checkin.ui.theme.fieldShape
 import cn.anlele.checkin.ui.theme.palette
 
 /** 站点根地址（用于「自助注册 / 隐私政策」等只能跳网页的入口） */
@@ -187,6 +191,33 @@ fun LoginScreen(vm: AppVm) {
                 BannerBar(state.loginError, tone = BannerTone.Error)
             }
 
+            // ---------- 本机账号：点一下直接登，不用输密码 ----------
+            // 只在真存过密码时才出现。这是切换账号在「已经退出/被踢下线」状态的入口 ——
+            // 否则用户每次换号都得重新把密码打一遍。
+            val quick = state.accounts.filter { it.password.isNotBlank() }
+            if (quick.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "本机账号",
+                    fontSize = 10.5.sp,
+                    color = p.textWeak,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 1.2.sp,
+                )
+                Spacer(Modifier.height(7.dp))
+                quick.take(3).forEach { acc ->
+                    QuickAccountRow(
+                        acc = acc,
+                        busy = state.switchingTo.equals(acc.username, ignoreCase = true),
+                        disabled = state.busy || state.switchingTo != null,
+                        onPick = { vm.switchAccount(acc) },
+                        onForget = { vm.forgetAccount(acc.username) },
+                    )
+                    Spacer(Modifier.height(7.dp))
+                }
+                Spacer(Modifier.height(3.dp))
+            }
+
             Spacer(Modifier.height(18.dp))
 
             // ---------- 账号 / 密码 ----------
@@ -277,10 +308,10 @@ fun LoginScreen(vm: AppVm) {
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BeianFoot("京ICP备00000000号-2A") { runCatching { uri.openUri("https://beian.miit.gov.cn/") } }
+            BeianFoot(Beian.appIcp(vm.ui.beiAn)) { runCatching { uri.openUri(Beian.ICP_URL) } }
             Text("·", fontSize = 9.5.sp, color = p.textWeak)
-            BeianFoot("京公网安备11000000000000号") {
-                runCatching { uri.openUri("https://beian.mps.gov.cn/#/query/webSearch?code=11000000000000") }
+            BeianFoot(Beian.POLICE) {
+                runCatching { uri.openUri(Beian.POLICE_URL) }
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -436,6 +467,72 @@ private fun LoginField(
                 }
             },
         )
+    }
+}
+
+/**
+ * 登录页上的「本机账号」快捷行 —— 点一下就登进去。
+ *
+ * 和 RememberRow 的区别：那个是选项（单选手感），这个是「换个人进去」（按钮手感），
+ * 所以做成整行可点的胶囊 + 头像，视觉上更接近账号列表而不是设置项。
+ */
+@Composable
+private fun QuickAccountRow(
+    acc: SavedAccount,
+    busy: Boolean,
+    disabled: Boolean,
+    onPick: () -> Unit,
+    onForget: () -> Unit,
+) {
+    val p = palette
+    var armed by remember { mutableStateOf(false) }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(fieldShape())
+            .background(p.cardSoft)
+            .clickable(enabled = !disabled && !armed, onClick = onPick)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(28.dp).background(p.accentSoft, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                acc.displayName.take(1).ifBlank { acc.username.take(1) },
+                fontSize = 12.5.sp, color = p.accent, fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Spacer(Modifier.width(9.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                acc.displayName.ifBlank { acc.username },
+                fontSize = 13.sp, color = p.text, fontWeight = FontWeight.Medium, maxLines = 1,
+            )
+            Text("@${acc.username}", fontSize = 10.5.sp, color = p.textWeak, maxLines = 1)
+        }
+        when {
+            busy -> Spinner(15.dp)
+            armed -> Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .clip(chipShape())
+                        .clickable { armed = false; onForget() }
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                ) { Text("移除", fontSize = 10.5.sp, color = Color(0xFFD93025)) }
+                Box(
+                    Modifier
+                        .clip(chipShape())
+                        .clickable { armed = false }
+                        .padding(horizontal = 5.dp, vertical = 3.dp),
+                ) { Text("算了", fontSize = 10.5.sp, color = p.textWeak) }
+            }
+            else -> Box(
+                Modifier.size(26.dp).clip(CircleShape).clickable { armed = true },
+                contentAlignment = Alignment.Center,
+            ) { Icon(AppIcons["x"], "移除此账号", Modifier.size(11.dp), tint = p.textWeak) }
+        }
     }
 }
 

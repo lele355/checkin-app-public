@@ -56,6 +56,7 @@ import cn.anlele.checkin.ui.components.BannerTone
 import cn.anlele.checkin.ui.components.DotBadge
 import cn.anlele.checkin.ui.components.IconBtn
 import cn.anlele.checkin.ui.icons.AppIcons
+import cn.anlele.checkin.ui.screens.AccountSwitchSheet
 import cn.anlele.checkin.ui.screens.AnniversaryScreen
 import cn.anlele.checkin.ui.screens.AiScreen
 import cn.anlele.checkin.ui.screens.BoardScreen
@@ -101,6 +102,7 @@ fun MainShell(vm: AppVm, me: MeDto) {
     val stack = remember { mutableStateListOf<String>() }
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
     var showPrefs by remember { mutableStateOf(false) }
+    var showAccounts by remember { mutableStateOf(false) }
 
     fun titleOf(code: String): String =
         me.nav.firstOrNull { it.code == code }?.label
@@ -157,9 +159,11 @@ fun MainShell(vm: AppVm, me: MeDto) {
                     me = me,
                     active = route,
                     collapsed = collapsed,
+                    accountCount = vm.ui.accounts.size,
                     onToggleGroup = { g -> collapsed[g] = !(collapsed[g] ?: false) },
                     onGo = { go(it) },
                     onPrefs = { scope.launch { drawer.close() }; showPrefs = true },
+                    onAccounts = { scope.launch { drawer.close() }; showAccounts = true },
                     onLogout = { scope.launch { drawer.close() }; vm.logout() },
                 )
             }
@@ -196,7 +200,12 @@ fun MainShell(vm: AppVm, me: MeDto) {
                 // 之前用 AnimatedContent 做滑动过渡，在低端机/软件渲染下会出现
                 // 「标题已经变了、内容还停在上一页」的鬼影，加了 key 才彻底解决。
                 key(route) {
-                    ScreenHost(route, vm, me, onPrefs = { showPrefs = true }) { code -> go(code) }
+                    ScreenHost(
+                        route, vm, me,
+                        onPrefs = { showPrefs = true },
+                        onAccounts = { showAccounts = true },
+                        go = { code -> go(code) },
+                    )
                 }
             }
         }
@@ -205,10 +214,35 @@ fun MainShell(vm: AppVm, me: MeDto) {
     if (showPrefs) {
         PrefsSheet(vm, me, onClose = { showPrefs = false })
     }
+
+    if (showAccounts) {
+        AccountSwitchSheet(
+            accounts = vm.ui.accounts,
+            currentUsername = me.username,
+            switchingTo = vm.ui.switchingTo,
+            onSwitch = { acc ->
+                showAccounts = false
+                vm.switchAccount(acc)
+            },
+            onForget = { acc -> vm.forgetAccount(acc.username) },
+            onManualLogin = {
+                showAccounts = false
+                vm.logout()
+            },
+            onDismiss = { showAccounts = false },
+        )
+    }
 }
 
 @Composable
-private fun ScreenHost(route: String, vm: AppVm, me: MeDto, onPrefs: () -> Unit, go: (String) -> Unit) {
+private fun ScreenHost(
+    route: String,
+    vm: AppVm,
+    me: MeDto,
+    onPrefs: () -> Unit,
+    onAccounts: () -> Unit,
+    go: (String) -> Unit,
+) {
     when (route) {
         "workbench" -> DashboardScreen(vm, me, go)
         "schedule" -> ScheduleScreen(vm)
@@ -222,13 +256,13 @@ private fun ScreenHost(route: String, vm: AppVm, me: MeDto, onPrefs: () -> Unit,
         "couples" -> CoupleScreen(vm)
         "period" -> PeriodScreen(vm)
         "reminders" -> RemindersScreen(vm, go)
-        "ai" -> AiScreen(vm)
+        "ai" -> AiScreen(vm, onSwitchAccount = onAccounts)
         "email" -> EmailScreen(vm)
         "export" -> ExportScreen(vm)
         "admin-users" -> UsersScreen(vm)
         "admin-roles" -> RolesScreen(vm)
         "admin-invites" -> InvitesScreen(vm)
-        "me" -> MeScreen(vm, me, onPrefs, go)
+        "me" -> MeScreen(vm, me, onPrefs, go, onAccounts)
         "notify" -> NotifyScreen(vm)
         else -> DashboardScreen(vm, me, go)
     }
@@ -241,9 +275,11 @@ private fun SidebarContent(
     me: MeDto,
     active: String,
     collapsed: MutableMap<String, Boolean>,
+    accountCount: Int,
     onToggleGroup: (String) -> Unit,
     onGo: (String) -> Unit,
     onPrefs: () -> Unit,
+    onAccounts: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val p = palette
@@ -309,11 +345,18 @@ private fun SidebarContent(
             Spacer(Modifier.height(10.dp))
         }
 
-        // 底部固定项：我的 / 外观 / 退出
+        // 底部固定项：我的 / 切换账号 / 外观 / 退出
         Column(Modifier.padding(horizontal = 10.dp)) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(p.border))
             Spacer(Modifier.height(6.dp))
             NavRow(NavItemDto(code = "me", label = "我的", icon = "user-cog"), active == "me") { onGo("me") }
+            // 「切换账号」放在「我的」下面而不是藏进设置：多账号是高频动作，
+            // 而且这是唯一能一眼看出「本机还存了几个号」的地方，右侧带个计数。
+            NavRow(
+                NavItemDto(code = "switch-account", label = "切换账号", icon = "arrow-left-right"),
+                false,
+                trailing = if (accountCount > 1) "${accountCount - 1} 个可选" else null,
+            ) { onAccounts() }
             NavRow(NavItemDto(code = "prefs", label = "外观与偏好", icon = "palette"), false) { onPrefs() }
             NavRow(NavItemDto(code = "logout", label = "退出登录", icon = "log-out"), false) { onLogout() }
             Spacer(Modifier.height(10.dp))
@@ -323,7 +366,12 @@ private fun SidebarContent(
 }
 
 @Composable
-private fun NavRow(item: NavItemDto, active: Boolean, onClick: () -> Unit) {
+private fun NavRow(
+    item: NavItemDto,
+    active: Boolean,
+    trailing: String? = null,
+    onClick: () -> Unit,
+) {
     val p = palette
     val bg = if (active) p.accentSoft else Color.Transparent
     val fg = if (active) p.accent else p.textSub
@@ -343,7 +391,11 @@ private fun NavRow(item: NavItemDto, active: Boolean, onClick: () -> Unit) {
             fontSize = 14.sp,
             color = if (active) p.text else p.textSub,
             fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
+            modifier = Modifier.weight(1f),
         )
+        if (trailing != null) {
+            Text(trailing, fontSize = 10.5.sp, color = p.textWeak)
+        }
     }
 }
 

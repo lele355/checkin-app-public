@@ -37,6 +37,8 @@ object AppIcons {
         "trash-2" to "M10 11v6 M14 11v6 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M3 6h18 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
         "plus" to "M5 12h14 M12 5v14",
         "x" to "M18 6 6 18 m6 6 12 12",
+        // 纯对勾（无外圈）：小尺寸下 check 那个「圆圈里打勾」会糊成一个圈
+        "check-plain" to "M20 6 9 17l-5-5",
         "menu" to "M4 5h16 M4 12h16 M4 19h16",
         "arrow-left" to "m12 19-7-7 7-7 M19 12H5",
         "chevron-left" to "m15 18-6-6 6-6",
@@ -63,6 +65,9 @@ object AppIcons {
         "settings-2" to "M20 7h-9 M14 17H5 M14 17A3 3 0 1 0 20 17A3 3 0 1 0 14 17Z M4 7A3 3 0 1 0 10 7A3 3 0 1 0 4 7Z",
         "chevron-up" to "m18 15-6-6-6 6",
         "chevron-down" to "m6 9 6 6 6-6",
+        "arrow-left-right" to "M8 3 4 7l4 4 M4 7h16 m16 21 4-4-4-4 M20 17H4",
+        "loader" to "M21 12a9 9 0 1 1-6.219-8.56",
+        "clock" to "M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z M12 6v6l4 2",
     )
 
     private val cache = HashMap<String, ImageVector>()

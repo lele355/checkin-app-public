@@ -27,9 +27,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,10 +42,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.anlele.checkin.AppVm
@@ -59,12 +61,15 @@ import cn.anlele.checkin.ui.components.AppField
 import cn.anlele.checkin.ui.components.EmptyState
 import cn.anlele.checkin.ui.components.IconBtn
 import cn.anlele.checkin.ui.components.PageHeadCard
+import cn.anlele.checkin.ui.components.Spinner
 import cn.anlele.checkin.ui.components.TinyAction
 import cn.anlele.checkin.ui.icons.AppIcons
 import cn.anlele.checkin.ui.theme.cardShape
 import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.palette
+import cn.anlele.checkin.ui.theme.buttonShape
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -74,20 +79,44 @@ import java.io.ByteArrayOutputStream
  *
  * 与网页同一套规则：AI 只「提建议」，用户点确认才真正写库。
  * 所以助手消息下面会跟一张建议卡，确认按钮点完变成「已写入」。
+ *
+ * 【发送过程为什么要单独做一块 UI】
+ * 这一轮请求后端要 17~40 秒（整张课表截图识别甚至更久）。早期版本点完发送
+ * 只是下面出现一行 12sp 的「正在想…」：用户刚打的字已经从输入框消失、列表里
+ * 又没出现自己那条，一时间不知道到底发出去没有，容易连点好几次 ——
+ * 后端那边就是几条重复消息 + 几倍 token。
+ *
+ * 现在改成：点发送立刻把「我刚发的那条」以本地气泡画出来（不等接口），
+ * 底下挂一条状态行，分阶段说明正在干什么，并显示已等待秒数；
+ * 超过 8 秒补一句「图片识别会慢一些」，超过 40 秒提示可以继续等或放弃。
  */
 @Composable
-fun AiScreen(vm: AppVm) {
+fun AiScreen(vm: AppVm, onSwitchAccount: (() -> Unit)? = null) {
     val p = palette
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf<AiPageDto?>(null) }
     var text by remember { mutableStateOf("") }
-    var sending by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var showClear by remember { mutableStateOf(false) }
     // 待发送图片：bmp 用来预览，data 是压缩后的 data URL（发给后端的就是它）
     var pickedBmp by remember { mutableStateOf<Bitmap?>(null) }
     var pickedData by remember { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
+    val listState = rememberLazyListState()
+
+    // ---------- 发送中的状态机（全部由本地变量驱动，不依赖接口回包） ----------
+    /** 非空表示正在等接口：内容是用户刚发的那条（立即回显） */
+    var pendingText by remember { mutableStateOf<String?>(null) }
+    var pendingImg by remember { mutableStateOf<Bitmap?>(null) }
+    /** 已等待秒数。用 tick 累加而不是算时间差：手机休眠/切后台也不会跳秒太快 */
+    var waited by remember { mutableStateOf(0) }
+    /** 失败信息：非空时状态行变成错误 + 重试 */
+    var failed by remember { mutableStateOf<String?>(null) }
+    /** 上一次发送的内容，供「重试」原样再发一次 */
+    var lastText by remember { mutableStateOf("") }
+    var lastImg by remember { mutableStateOf<String?>(null) }
+
+    val sending = pendingText != null
 
     suspend fun load() {
         loading = true
@@ -102,6 +131,16 @@ fun AiScreen(vm: AppVm) {
 
     LaunchedEffect(Unit) { load() }
 
+    // 等待秒数计数：只在 sending 时跑。放在这里而不是 send() 里，
+    // 是因为旋转屏幕、切后台回来都要继续显示正确的时长。
+    LaunchedEffect(sending, failed) {
+        if (!sending || failed != null) return@LaunchedEffect
+        while (true) {
+            delay(1000)
+            waited += 1
+        }
+    }
+
     // 系统相册（PickVisualMedia：Android 13+ 走照片选择器，低版本自动回落文档选择器，
     // 两条路都不需要申请读相册权限）
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -114,25 +153,60 @@ fun AiScreen(vm: AppVm) {
         }
     }
 
-    fun send() {
-        val t = text.trim()
-        val img = pickedData
-        if ((t.isEmpty() && img == null) || sending) return     // 纯图也能发
-        text = ""
-        pickedBmp = null
-        pickedData = null
-        sending = true
+    /** 真正发请求。t/msg/img 由调用方给，便于「重试」原样重放 */
+    fun fire(t: String, img: String?, imgBmp: Bitmap?) {
+        pendingText = t
+        pendingImg = imgBmp
+        waited = 0
+        failed = null
+        lastText = t
+        lastImg = img
         scope.launch {
             try {
                 page = Repo.aiSend(t, img)
+                pendingText = null
+                pendingImg = null
+                // 成功后把「我发的那条」交给接口返回的列表，避免出现两条一模一样的
+                waited = 0
             } catch (e: ApiException) {
-                vm.toast(e.message)
+                failed = e.message
             } catch (e: Exception) {
-                vm.toast("发送失败，检查网络后再试")
-            } finally {
-                sending = false
+                failed = "发送失败，检查网络后再试"
             }
         }
+    }
+
+    fun send() {
+        val t = text.trim()
+        val img = pickedData
+        // 纯图也能发
+        if ((t.isEmpty() && img == null) || sending) return
+        val imgBmp = pickedBmp
+        text = ""
+        pickedBmp = null
+        pickedData = null
+        fire(t, img, imgBmp)
+    }
+
+    fun retry() {
+        val t = lastText
+        val img = lastImg
+        if (t.isEmpty() && img == null) return
+        fire(t, img, pendingImg)
+    }
+
+    fun discard() {
+        pendingText = null
+        pendingImg = null
+        failed = null
+        waited = 0
+    }
+
+    // 新消息进视野：本地气泡、状态行、接口回包三处都要跟着滚
+    val msgsNow = page?.items.orEmpty().size
+    LaunchedEffect(msgsNow, sending, failed) {
+        val last = listState.layoutInfo.totalItemsCount - 1
+        if (last >= 0) listState.animateScrollToItem(last)
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -141,21 +215,34 @@ fun AiScreen(vm: AppVm) {
             PageHeadCard(
                 title = "AI 助手",
                 hint = "说「明天下午三点开会」或「午饭 15 元」就能直接建；点左下角回形针可发课表截图。AI 只出建议，确认后才写入。",
-                actions = { TinyAction("清空历史", "trash-2") { showClear = true } },
+                actions = {
+                    // 账号相关操作收敛在页头：这里是「以谁的身份在问 AI」最直观的位置
+                    if (onSwitchAccount != null) {
+                        TinyAction("切换账号", "arrow-left-right", onClick = onSwitchAccount)
+                    }
+                    TinyAction("清空历史", "trash-2") { showClear = true }
+                },
             )
             val q = page?.quota
             if (q != null) {
-                Text(
-                    "今日已用 ${q.usedTokens} / ${q.dailyTokens} tokens",
-                    fontSize = 11.sp,
-                    color = p.textWeak,
-                    modifier = Modifier.padding(start = 4.dp, top = 6.dp),
-                )
+                Row(Modifier.padding(start = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "今日已用 ${q.usedTokens} / ${q.dailyTokens} tokens · ${q.usedRequests} / ${q.dailyRequests} 次",
+                        fontSize = 11.sp,
+                        color = p.textWeak,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "@${vm.ui.accounts.firstOrNull()?.username ?: vm.ui.me?.username.orEmpty()}",
+                        fontSize = 11.sp,
+                        color = p.textWeak,
+                    )
+                }
             }
         }
 
         val msgs = page?.items.orEmpty()
-        if (msgs.isEmpty() && !loading) {
+        if (msgs.isEmpty() && !loading && !sending) {
             Box(Modifier.weight(1f)) {
                 EmptyState(
                     icon = "spark",
@@ -166,12 +253,13 @@ fun AiScreen(vm: AppVm) {
         } else {
             LazyColumn(
                 Modifier.weight(1f),
+                state = listState,
                 contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(msgs.size) { i ->
                     val m = msgs[i]
-                    if (m.role == "user") UserBubble(m) else AssistantBubble(m) { idx ->
+                    if (m.role == "user") UserBubble(m.content, m.hasImage) else AssistantBubble(m) { idx ->
                         scope.launch {
                             try {
                                 val r = Repo.aiExecute(m.id, idx)
@@ -185,13 +273,37 @@ fun AiScreen(vm: AppVm) {
                         }
                     }
                 }
-                if (sending) {
-                    item {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(Modifier.size(14.dp), color = p.accent, strokeWidth = 2.dp)
-                            Spacer(Modifier.width(8.dp))
-                            Text("正在想…", fontSize = 12.sp, color = p.textWeak)
+
+                // ---------- 本地回显：我发的那条（不等接口先画出来） ----------
+                val pt = pendingText
+                if (pt != null) {
+                    item("pending-user") {
+                        UserBubble(pt, pendingImg != null)
+                    }
+                    // 图片也回显 —— 否则发截图时「图去哪了」会让人以为没发出去
+                    val pb = pendingImg
+                    if (pb != null) {
+                        item("pending-img") {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                Image(
+                                    bitmap = pb.asImageBitmap(),
+                                    contentDescription = "刚发送的图片",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(96.dp)
+                                        .clip(RoundedCornerShape(12.dp)),
+                                )
+                            }
                         }
+                    }
+                    item("pending-state") {
+                        SendStateRow(
+                            failed = failed,
+                            waited = waited,
+                            hasImage = pendingImg != null,
+                            onRetry = { retry() },
+                            onDiscard = { discard() },
+                        )
                     }
                 }
             }
@@ -252,10 +364,18 @@ fun AiScreen(vm: AppVm) {
                     AppField("", text, { text = it }, placeholder = "说点什么，或发张图让我看看…", singleLine = false, minLines = 1, maxLines = 4)
                 }
                 Spacer(Modifier.width(6.dp))
-                IconBtn(
-                    "send", "发送", size = 44.dp,
-                    tint = if ((text.isBlank() && pickedData == null) || sending) p.textWeak else p.accent,
-                ) { send() }
+                // 发送中把按钮画成「转圈」，比单纯置灰更能说明「正在处理」
+                if (sending) {
+                    Box(
+                        Modifier.size(44.dp).clip(CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) { Spinner(18.dp, tint = p.accent) }
+                } else {
+                    IconBtn(
+                        "send", "发送", size = 44.dp,
+                        tint = if (text.isBlank() && pickedData == null) p.textWeak else p.accent,
+                    ) { send() }
+                }
             }
         }
     }
@@ -273,7 +393,7 @@ fun AiScreen(vm: AppVm) {
                         runCatching { Repo.aiClear() }
                         load()
                     }
-                }) { Text("清空", color = androidx.compose.ui.graphics.Color(0xFFD93025)) }
+                }) { Text("清空", color = Color(0xFFD93025)) }
             },
             dismissButton = {
                 androidx.compose.material3.TextButton(onClick = { showClear = false }) { Text("取消", color = p.textSub) }
@@ -282,8 +402,116 @@ fun AiScreen(vm: AppVm) {
     }
 }
 
+/**
+ * 发送状态行 —— 做完这一屏最核心的一块：让用户始终知道「发到哪一步了」。
+ *
+ * 三态：
+ *   进行中 → 转圈 + 阶段文案 + 已等待秒数（超过阈值补安慰/提示）
+ *   失败   → 红色一行原因 + 「重试 / 放弃」
+ * 什么都不显示的情况不存在：只要在等，就一定有话可说。
+ */
 @Composable
-private fun UserBubble(m: AiMsgDto) {
+private fun SendStateRow(
+    failed: String?,
+    waited: Int,
+    hasImage: Boolean,
+    onRetry: () -> Unit,
+    onDiscard: () -> Unit,
+) {
+    val p = palette
+
+    if (failed != null) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(p.cardShape())
+                .background(p.cardSoft)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(AppIcons["bell"], null, Modifier.size(14.dp), tint = Color(0xFFD93025))
+                Spacer(Modifier.width(7.dp))
+                Text(failed, fontSize = 12.5.sp, color = Color(0xFFD93025), modifier = Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(9.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // 主操作是「重试」：这一条消息用户是认真打的，不该因为一次网络抖动白丢
+                Box(
+                    Modifier
+                        .clip(p.buttonShape())
+                        .background(p.accent)
+                        .clickable(onClick = onRetry)
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                ) {
+                    Text("重试", fontSize = 12.5.sp, color = p.onAccent, fontWeight = FontWeight.Medium)
+                }
+                Box(
+                    Modifier
+                        .clip(p.buttonShape())
+                        .background(p.card)
+                        .clickable(onClick = onDiscard)
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                ) {
+                    Text("放弃这条", fontSize = 12.5.sp, color = p.textSub)
+                }
+            }
+        }
+        return
+    }
+
+    // 阶段文案：宁可写得具体一点，也不要说「请稍候」这种等于没说的话
+    val stage = when {
+        waited < 3 -> "已发送，正在等 AI 回应…"
+        waited < 10 -> "AI 正在读你的问题…"
+        waited < 25 -> "正在生成回复，这一步稍慢…"
+        else -> "还在算，网络或长截图会让它更久…"
+    }
+    // 长等待的补充说明：只在超过阈值时出现，避免一上来就吓人
+    val tip = when {
+        waited >= 45 -> "已经比较久了，可以继续等，也可以放弃后换个问法。"
+        // 提示跟着「这条到底带没带图」走：纯文字说「带图片 20~40 秒」纯属误导
+        waited >= 8 && hasImage -> "带图片的请求要逐行识别，通常 20~40 秒。"
+        waited >= 20 && !hasImage -> "纯文字一般十几秒，这会儿可能是服务器在排队。"
+        else -> null
+    }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(p.cardShape())
+            .background(p.card)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AvatarDot(24.dp)
+        Spacer(Modifier.width(9.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spinner(13.dp)
+                Spacer(Modifier.width(7.dp))
+                Text(stage, fontSize = 12.5.sp, color = p.textSub, modifier = Modifier.weight(1f))
+                Text("${waited}s", fontSize = 11.sp, color = p.textWeak)
+            }
+            if (tip != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(tip, fontSize = 11.sp, color = p.textWeak, lineHeight = 16.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AvatarDot(size: Dp) {
+    val p = palette
+    Box(
+        Modifier.size(size).background(p.accentSoft, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) { Icon(AppIcons["spark"], null, Modifier.size(size * .54f), tint = p.accent) }
+}
+
+/** 用户气泡：文字 + （可选）图片角标。本地回显与历史消息共用同一个形态 */
+@Composable
+private fun UserBubble(text: String, hasImage: Boolean) {
     val p = palette
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(
@@ -292,7 +520,12 @@ private fun UserBubble(m: AiMsgDto) {
                 .background(p.cardSoft, p.cardShape())
                 .padding(12.dp),
         ) {
-            Text(m.content.ifBlank { if (m.hasImage) "[图片]" else "" }, fontSize = 13.5.sp, color = p.text, lineHeight = 21.sp)
+            Text(
+                text.ifBlank { if (hasImage) "[图片]" else "" },
+                fontSize = 13.5.sp,
+                color = p.text,
+                lineHeight = 21.sp,
+            )
         }
     }
 }
@@ -301,10 +534,7 @@ private fun UserBubble(m: AiMsgDto) {
 private fun AssistantBubble(m: AiMsgDto, onExecute: (Int) -> Unit) {
     val p = palette
     Row(Modifier.fillMaxWidth()) {
-        Box(
-            Modifier.size(26.dp).background(p.accentSoft, androidx.compose.foundation.shape.CircleShape),
-            contentAlignment = Alignment.Center,
-        ) { Icon(AppIcons["spark"], null, Modifier.size(14.dp), tint = p.accent) }
+        AvatarDot(26.dp)
         Spacer(Modifier.width(9.dp))
         Column(Modifier.fillMaxWidth(0.9f)) {
             Box(

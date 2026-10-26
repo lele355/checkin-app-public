@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.anlele.checkin.AppVm
 import cn.anlele.checkin.data.ApiException
+import cn.anlele.checkin.data.Beian
 import cn.anlele.checkin.data.MeDto
 import cn.anlele.checkin.data.Repo
 import cn.anlele.checkin.ui.components.AppCard
@@ -54,7 +55,13 @@ import kotlinx.coroutines.launch
  * 头像行 → 我的数据（2×4 八宫格，点数字直达模块）→ 基础资料（内联表单）→ 修改密码（内联表单）。
  */
 @Composable
-fun MeScreen(vm: AppVm, me: MeDto, onPrefs: () -> Unit, go: (String) -> Unit) {
+fun MeScreen(
+    vm: AppVm,
+    me: MeDto,
+    onPrefs: () -> Unit,
+    go: (String) -> Unit,
+    onAccounts: () -> Unit = {},
+) {
     val p = palette
     val scope = rememberCoroutineScope()
 
@@ -113,6 +120,15 @@ fun MeScreen(vm: AppVm, me: MeDto, onPrefs: () -> Unit, go: (String) -> Unit) {
                         AppIcons["palette"], "外观", Modifier.size(18.dp).clickable(onClick = onPrefs),
                         tint = p.textSub,
                     )
+                    // 头像行右下角再放一个切换账号：多账号用户最常从「我的」进来找人
+                    if (vm.ui.accounts.size > 1) {
+                        Spacer(Modifier.width(12.dp))
+                        Icon(
+                            AppIcons["arrow-left-right"], "切换账号",
+                            Modifier.size(18.dp).clickable(onClick = onAccounts),
+                            tint = p.textSub,
+                        )
+                    }
                 }
             }
         }
@@ -219,6 +235,7 @@ fun MeScreen(vm: AppVm, me: MeDto, onPrefs: () -> Unit, go: (String) -> Unit) {
             AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
                 Column {
                     GroupHead("更多")
+                    MeRow("arrow-left-right", "切换账号", trailing = if (vm.ui.accounts.size > 1) "${vm.ui.accounts.size - 1} 个可选" else null) { onAccounts() }
                     MeRow("bell", "通知设置") { go("notify") }
                     MeRow("download", "导出数据") { go("export") }
                     // 应用商店没上架（自用邀请制），系统不会主动提示更新，
@@ -241,11 +258,9 @@ fun MeScreen(vm: AppVm, me: MeDto, onPrefs: () -> Unit, go: (String) -> Unit) {
                     Spacer(Modifier.height(6.dp))
                     // 法规要求：在 App 显著位置标明备案编号，并在编号下方链接备案系统查询页。
                     // 注意 ICP 号用的是「-2A」（App 的号），不是网站的「-1」。
-                    BeianLine("ICP 备案", "京ICP备00000000号-2A", "https://beian.miit.gov.cn/")
-                    BeianLine(
-                        "公安备案", "京公网安备11000000000000号",
-                        "https://beian.mps.gov.cn/#/query/webSearch?code=11000000000000",
-                    )
+                    // 号优先用服务端下发的（补正换号不用发版），拉不到回落到内置值。
+                    BeianLine("ICP 备案", Beian.appIcp(vm.ui.beiAn), Beian.ICP_URL)
+                    BeianLine("公安备案", Beian.POLICE, Beian.POLICE_URL)
                     Spacer(Modifier.height(6.dp))
                     Text("自用小站 · 仅限受邀成员", fontSize = 11.sp, color = p.textWeak)
                 }

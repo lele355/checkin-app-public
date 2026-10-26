@@ -1,6 +1,7 @@
 package cn.anlele.checkin.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -32,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,19 +63,19 @@ import cn.anlele.checkin.ui.components.TinyAction
 import cn.anlele.checkin.ui.components.WeekField
 import cn.anlele.checkin.ui.icons.AppIcons
 import cn.anlele.checkin.ui.theme.chipShape
+import cn.anlele.checkin.ui.theme.CoursePalette
 import cn.anlele.checkin.ui.theme.palette
 import cn.anlele.checkin.util.Dates
 import kotlinx.coroutines.launch
 
 private val WEEK_LABELS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
-/** 课程类别配色 —— 与网页图例一致：必选紫、院选蓝、校选绿、其它浅紫 */
 private data class CourseColors(val bg: Color, val fg: Color)
-private fun colorsOf(category: String): CourseColors = when (category) {
-    "required" -> CourseColors(Color(0xFFEDE7F6), Color(0xFF5E35B1))
-    "college" -> CourseColors(Color(0xFFE3F2FD), Color(0xFF1565C0))
-    "school" -> CourseColors(Color(0xFFE8F5E9), Color(0xFF2E7D32))
-    else -> CourseColors(Color(0xFFF3E5F5), Color(0xFF7B1FA2))
+
+/** 课程配色 —— 颜色跟着「哪门课」走，不再跟着类别走（与网页端同一套色板） */
+private fun colorsOf(c: CourseDto, isDark: Boolean): CourseColors {
+    val key = CoursePalette.of(c)
+    return CourseColors(CoursePalette.bg(key, isDark), CoursePalette.fg(key, isDark))
 }
 
 /**
@@ -255,20 +258,30 @@ private fun LazyColumnish(
         }
 
         // ---------- 图例 ----------
+        // 按「课程」去重（颜色现在跟着课程走）。同一门课一周上几次只留一个色块；
+        // 课程多到十几门时图例会撑爆一行，所以横滑 + 最多 12 门。
         StaggerIn(2) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
-                listOf(
-                    "required" to "必修课",
-                    "college" to "院级选修课",
-                    "school" to "校级选修课",
-                    "other" to "其它",
-                ).forEach { (k, label) ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(9.dp).background(colorsOf(k).fg, chipShape()))
-                        Spacer(Modifier.width(4.dp))
-                        Text(label, fontSize = 10.5.sp, color = p.textSub, maxLines = 1)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+            ) {
+                d.items
+                    .distinctBy { CoursePalette.nameKey(it.name) }
+                    .take(12)
+                    .forEach { c ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(9.dp).background(colorsOf(c, p.isDark).fg, chipShape()))
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                c.name,
+                                fontSize = 10.5.sp,
+                                color = p.textSub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 96.dp),
+                            )
+                        }
                     }
-                }
             }
         }
 
@@ -348,7 +361,7 @@ private fun LazyColumnish(
                                             .forEach { c ->
                                                 val span = (c.endPeriod - c.startPeriod + 1).coerceAtLeast(1)
                                                 if (c.startPeriod in 1..periods.size) {
-                                                    val col = colorsOf(c.category)
+                                                    val col = colorsOf(c, p.isDark)
                                                     Box(
                                                         Modifier
                                                             .offset(y = cellH * (c.startPeriod - 1))
@@ -435,7 +448,12 @@ private fun CourseEditor(vm: AppVm, initial: CourseDto?, periodCount: Int, onClo
     var end by remember { mutableStateOf(initial?.endPeriod ?: 2) }
     var weeks by remember { mutableStateOf(initial?.weeksText ?: "1-16") }
     var category by remember { mutableStateOf(initial?.category ?: "required") }
+    // 空串 = 自动（按课程名分配）。编辑已有课程时回显它落库的色，没设过就还是自动。
+    var color by remember { mutableStateOf(CoursePalette.normalize(initial?.color)) }
     var saving by remember { mutableStateOf(false) }
+
+    // 自动色的预览：跟随当前输入的名字实时变，用户能看到「改名后颜色也跟着换」
+    val autoKey = CoursePalette.defaultFor(name)
 
     EditSheet(
         title = if (initial == null) "添加课程" else "编辑课程",
@@ -451,7 +469,10 @@ private fun CourseEditor(vm: AppVm, initial: CourseDto?, periodCount: Int, onClo
             saving = true
             scope.launch {
                 try {
-                    val req = Repo.CourseReq(name.trim(), teacher.trim(), location.trim(), weekday, start, end, weeks.trim(), category)
+                    val req = Repo.CourseReq(
+                        name.trim(), teacher.trim(), location.trim(), weekday, start, end,
+                        weeks.trim(), category, color,
+                    )
                     if (initial == null) Repo.createCourse(req) else Repo.updateCourse(initial.id, req)
                     onSaved()
                 } catch (e: ApiException) {
@@ -493,6 +514,71 @@ private fun CourseEditor(vm: AppVm, initial: CourseDto?, periodCount: Int, onClo
                 .forEach { (k, label) ->
                     AppChip(label, selected = category == k) { category = k }
                 }
+        }
+
+        // ---------- 颜色 ----------
+        // 颜色现在区分的是「哪门课」，跟类别无关（类别只作说明）。
+        // 默认「自动」：同名课程自动同色，所以一门课上三次不用一个个去挑。
+        Spacer(Modifier.height(14.dp))
+        Text("颜色", fontSize = 12.5.sp, color = p.textSub)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // 自动
+            SwatchDot(
+                key = null,
+                autoPreview = autoKey,
+                selected = color.isEmpty(),
+                onClick = { color = "" },
+            )
+            CoursePalette.Keys.forEach { k ->
+                SwatchDot(key = k, autoPreview = null, selected = color == k, onClick = { color = k })
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (color.isEmpty()) "自动：同名课程同色（「高等数学（上）」和「高等数学 上」算同一门）"
+            else "已固定为「${CoursePalette.Labels[color] ?: color}」，同一门课的所有小节都会跟着变",
+            fontSize = 11.sp, color = p.textWeak, lineHeight = 17.sp,
+        )
+    }
+}
+
+/**
+ * 色板圆点。
+ *
+ * `key == null` 是「自动」：中间画一小片双色斜纹，暗示「按名字算出来的」。
+ * 选中态用外圈描边而不是打勾 —— 打勾会挡住色块本身，色板上打勾反而看不清颜色。
+ */
+@Composable
+private fun SwatchDot(key: String?, autoPreview: String?, selected: Boolean, onClick: () -> Unit) {
+    val p = palette
+    val shown = key ?: autoPreview ?: CoursePalette.Keys[0]
+    Box(
+        Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(if (key == null) p.cardSoft else CoursePalette.bg(shown, p.isDark))
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) CoursePalette.fg(shown, p.isDark) else p.borderStrong.copy(alpha = .35f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (key == null) {
+            // 自动：半透明色点 + 虚线感（用一圈浅描边近似），表示「由名字决定」
+            Box(
+                Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(CoursePalette.fg(shown, p.isDark).copy(alpha = .45f)),
+            )
+        } else {
+            Box(Modifier.size(18.dp).clip(CircleShape).background(CoursePalette.fg(shown, p.isDark)))
         }
     }
 }
