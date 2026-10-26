@@ -215,8 +215,24 @@ private fun LazyColumnish(
                     }
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // 这里是页面上最显眼的日期字段，原来还是手打输入框（点一下弹键盘），
+                        // 与「日期一律点选」的规矩不一致。换成 DateField，点开月历选。
+                        // 学期起始只认周一，所以选完统一吸附到所在周的周一。
                         Box(Modifier.weight(1f)) {
-                            AppField("", semStart, onSemStart, placeholder = "2026-09-01")
+                            DateField(
+                                label = "",
+                                value = semStart,
+                                placeholder = "选择日期",
+                                onChange = { picked ->
+                                    if (picked.isBlank()) {
+                                        onSemStart("")
+                                    } else {
+                                        val mon = Dates.mondayOf(picked)
+                                        onSemStart(mon)
+                                        if (mon != picked) vm.toast("已对齐到该周周一")
+                                    }
+                                },
+                            )
                         }
                         Spacer(Modifier.width(8.dp))
                         HeadButton("保存", icon = null) { onSaveSemStart() }
