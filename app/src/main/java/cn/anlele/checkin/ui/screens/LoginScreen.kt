@@ -301,7 +301,9 @@ fun LoginScreen(vm: AppVm) {
         }
         Spacer(Modifier.height(4.dp))
         // 法规要求：备案号要在显著位置可见且能点进官方查询页。
-        // App 用「-2A」这一号（网站是「-1」），公安备案号是独立编号。
+        // App 的 ICP 号是「-2A」（网站是「-1」）。
+        // 公安联网备案的编号按域名/网站发，App 不发号 —— 页脚只放 ICP 号，
+        // 「公安备案：已备案」那行在「我的 → 关于」里，可点进公共查询核验。
         // 和网页一样排成一行：字号压到 9.5sp 才塞得下，超窄屏会各自缩到省略号，
         // 所以给每个号 maxLines=1 而不是靠外层截断。
         Row(
@@ -309,10 +311,6 @@ fun LoginScreen(vm: AppVm) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             BeianFoot(Beian.appIcp(vm.ui.beiAn)) { runCatching { uri.openUri(Beian.ICP_URL) } }
-            Text("·", fontSize = 9.5.sp, color = p.textWeak)
-            BeianFoot(Beian.POLICE) {
-                runCatching { uri.openUri(Beian.POLICE_URL) }
-            }
         }
         Spacer(Modifier.height(4.dp))
         Text(

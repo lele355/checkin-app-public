@@ -708,6 +708,8 @@ data class VersionDto(
     val notes: String = "",
     /** App 备案号（陕ICP备…号-2A）。服务端下发而不是写死在 APK 里：补正换号时不用重新发版 */
     val beiAn: String = "",
+    /** App 的公安联网备案号。与网站的号是两套，空串 = 还没拿到号 */
+    val policeBeiAn: String = "",
 )
 
 @Serializable

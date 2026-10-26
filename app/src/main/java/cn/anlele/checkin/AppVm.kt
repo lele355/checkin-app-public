@@ -40,6 +40,8 @@ data class UiState(
     val switchingTo: String? = null,
     /** 服务端下发的 App 备案号；空 = 还没拉到，页面回落到 Beian.APP_ICP */
     val beiAn: String = "",
+    /** 服务端下发的 App 公安联网备案号；空 = 号还没拿到，页面显示「办理中」 */
+    val policeBeiAn: String = "",
 )
 
 /**
@@ -84,10 +86,15 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             )
 
             // 备案号单独拉：匿名接口，登录页也要用，所以不等登录态、也不挂进启动路径 ——
-            // 拉不到就用 Beian.APP_ICP 兜底，绝不能让页面上「关于」里空着一行。
+            // 拉不到就用 Beian 里的兜底值，绝不能让页面上「关于」里空着一行。
             viewModelScope.launch {
                 runCatching { Repo.version() }
-                    .onSuccess { if (it.beiAn.isNotBlank()) ui = ui.copy(beiAn = it.beiAn.trim()) }
+                    .onSuccess {
+                        ui = ui.copy(
+                            beiAn = it.beiAn.trim().ifBlank { ui.beiAn },
+                            policeBeiAn = it.policeBeiAn.trim().ifBlank { ui.policeBeiAn },
+                        )
+                    }
             }
 
             if (saved.token.isNullOrBlank()) {

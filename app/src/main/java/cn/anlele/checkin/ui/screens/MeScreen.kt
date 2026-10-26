@@ -260,7 +260,16 @@ fun MeScreen(
                     // 注意 ICP 号用的是「-2A」（App 的号），不是网站的「-1」。
                     // 号优先用服务端下发的（补正换号不用发版），拉不到回落到内置值。
                     BeianLine("ICP 备案", Beian.appIcp(vm.ui.beiAn), Beian.ICP_URL)
-                    BeianLine("公安备案", Beian.POLICE, Beian.POLICE_URL)
+                    // 公安联网备案：编号是按域名/网站发的，App 不发号（公共查询里查 App 只有状态，
+                    // 查网站才有「公安备案号」那一行）。所以 App 侧写「已备案」+ 核验入口，
+                    // 既不编号，也不能拿网站的 01655 顶上 —— 那是另一个主体的服务项。
+                    val hasCode = Beian.hasPoliceCode(vm.ui.policeBeiAn)
+                    BeianLine(
+                        label = "公安备案",
+                        code = Beian.policeText(vm.ui.policeBeiAn),
+                        url = Beian.policeUrl(vm.ui.policeBeiAn),
+                        strong = hasCode,
+                    )
                     Spacer(Modifier.height(6.dp))
                     Text("自用小站 · 仅限受邀成员", fontSize = 11.sp, color = p.textWeak)
                 }
@@ -352,9 +361,14 @@ private fun MeRow(
     }
 }
 
-/** 备案信息一行：编号 + 右侧箭头，点了打开官方查询页（合规要求） */
+/**
+ * 备案信息一行：内容 + 右侧箭头，点了打开官方查询页（合规要求）。
+ *
+ * [strong] = true 时内容当「编号」看（强调色）；false 时当「状态」看（灰字）——
+ * 公安备案 App 侧没有编号，写的是「已备案」，用蓝色会让人以为是编号。
+ */
 @Composable
-private fun BeianLine(label: String, code: String, url: String) {
+private fun BeianLine(label: String, code: String, url: String, strong: Boolean = true) {
     val p = palette
     val uri = androidx.compose.ui.platform.LocalUriHandler.current
     Row(
@@ -365,7 +379,7 @@ private fun BeianLine(label: String, code: String, url: String) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text("$label ", fontSize = 11.sp, color = p.textWeak)
-        Text(code, fontSize = 11.sp, color = p.accent, modifier = Modifier.weight(1f))
+        Text(code, fontSize = 11.sp, color = if (strong) p.accent else p.textSub, modifier = Modifier.weight(1f))
         Icon(AppIcons["chevron-right"], null, Modifier.size(11.dp), tint = p.textWeak)
     }
 }
