@@ -589,6 +589,9 @@ data class EmailAccountDto(
     val hasAuthCode: Boolean = false,
     val lastSyncAt: String = "",
     val lastSyncError: String = "",
+    // 同步范围（天 / 封）。0 = 跟全局默认
+    val syncDays: Int = 0,
+    val syncCount: Int = 0,
     val unread: Int = 0,
 )
 

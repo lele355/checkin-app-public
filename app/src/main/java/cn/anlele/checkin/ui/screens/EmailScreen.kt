@@ -81,6 +81,7 @@ fun EmailScreen(vm: AppVm) {
     var detailLoading by remember { mutableStateOf(false) }
 
     var addOpen by remember { mutableStateOf(false) }
+    var editAccount by remember { mutableStateOf<EmailAccountDto?>(null) }
 
     suspend fun loadAccounts() {
         try {
@@ -143,9 +144,24 @@ fun EmailScreen(vm: AppVm) {
                     syncing = true
                     scope.launch {
                         try {
+                            // accountId=0 是「全部」；选了某个账号就只同步它 —— 以前这点不明显，
+                            // 多账号时想只拉一个邮箱还得先切 tab 再点同步。
                             val r = Repo.syncEmail(accountId)
-                            val added = r.results.sumOf { it.added }
-                            vm.toast(if (r.results.isEmpty()) "还没绑定邮箱" else "同步完成，新增 $added 封")
+                            if (r.results.isEmpty()) {
+                                vm.toast("还没绑定邮箱")
+                            } else {
+                                // 逐个账号报结果：一个成功一个失败时不能只说「同步完成」，
+                                // 否则失败的那个永远没人知道为什么没信。
+                                val parts = r.results.map { n ->
+                                    val head = n.name
+                                    when {
+                                        !n.ok -> "$head：${n.error.ifBlank { "失败" }}"
+                                        else -> "$head：+${n.added} 封"
+                                    }
+                                }
+                                val failed = r.results.count { !it.ok }
+                                vm.toast(if (failed == 0) parts.joinToString("；") else "⚠ " + parts.joinToString("；"))
+                            }
                             loadMails()
                         } catch (e: Exception) {
                             vm.toast("同步失败，稍后再试")
@@ -166,14 +182,14 @@ fun EmailScreen(vm: AppVm) {
                     scope.launch { loadMails() }
                 }
             } else {
-                TinyAction("添加", "plus") { addOpen = true }
+                TinyAction("添加", "plus") { editAccount = null; addOpen = true }
             }
         }
 
         if (tab == 1) {
             if (accounts.isEmpty() && !loading) {
                 EmptyState(icon = "mail", title = "还没有邮箱", hint = "绑定一个 QQ / 163 / Gmail 都行") {
-                    PrimaryButton("添加邮箱", icon = "plus") { addOpen = true }
+                    PrimaryButton("添加邮箱", icon = "plus") { editAccount = null; addOpen = true }
                 }
             } else {
                 LazyColumn(
@@ -199,22 +215,45 @@ fun EmailScreen(vm: AppVm) {
                                 Column(horizontalAlignment = Alignment.End) {
                                     if (a.unread > 0)
                                         Text("${a.unread} 未读", fontSize = 11.5.sp, color = p.accent)
-                                    TinyAction("删除", "trash-2", danger = true) {
-                                        scope.launch {
-                                            runCatching { Repo.deleteEmailAccount(a.id) }
-                                            loadAccounts()
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // 改服务器、改授权码、改同步范围都走这里（以前只有「删除」，
+                                        // 想改个 SMTP 地址只能删了重绑，缓存信件还全没了）
+                                        TinyAction("编辑", "pencil") { editAccount = a; addOpen = true }
+                                        Spacer(Modifier.width(2.dp))
+                                        TinyAction("删除", "trash-2", danger = true) {
+                                            scope.launch {
+                                                runCatching { Repo.deleteEmailAccount(a.id) }
+                                                loadAccounts()
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                    item { PrimaryButton("添加邮箱", Modifier.fillMaxWidth(), icon = "plus") { addOpen = true } }
+                    item { PrimaryButton("添加邮箱", Modifier.fillMaxWidth(), icon = "plus") { editAccount = null; addOpen = true } }
                 }
             }
         } else {
             if (mails.isEmpty() && !loading) {
-                EmptyState(icon = "mail", title = "收件箱是空的")
+                // ⚠️ 空收件箱也要留着账号切换栏：原来这里只画 EmptyState，
+                // 一个账号没信时整块「切账号」入口就没了，看着像 App 坏了。
+                LazyColumn(Modifier.fillMaxSize()) {
+                    if (accounts.isNotEmpty()) {
+                        item {
+                            Row(
+                                Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            ) {
+                                AppChip("全部", selected = accountId == 0) { accountId = 0 }
+                                accounts.forEach { a ->
+                                    AppChip(a.displayName, selected = accountId == a.id) { accountId = a.id }
+                                }
+                            }
+                        }
+                    }
+                    item { EmptyState(icon = "mail", title = "收件箱是空的") }
+                }
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
@@ -264,10 +303,15 @@ fun EmailScreen(vm: AppVm) {
     }
 
     if (addOpen) {
-        AddAccountSheet(vm, onClose = { addOpen = false }, onSaved = {
-            addOpen = false
-            scope.launch { loadAccounts() }
-        })
+        AddAccountSheet(
+            vm = vm,
+            editing = editAccount,
+            onClose = { addOpen = false; editAccount = null },
+            onSaved = {
+                addOpen = false; editAccount = null
+                scope.launch { loadAccounts() }
+            },
+        )
     }
 }
 
@@ -388,16 +432,20 @@ private fun MailDetailSheet(d: MailDetailDto?, loading: Boolean, onClose: () -> 
 }
 
 @Composable
-private fun AddAccountSheet(vm: AppVm, onClose: () -> Unit, onSaved: () -> Unit) {
+private fun AddAccountSheet(
+    vm: AppVm,
+    editing: EmailAccountDto? = null,
+    onClose: () -> Unit,
+    onSaved: () -> Unit,
+) {
     val p = palette
     val scope = rememberCoroutineScope()
     var providers by remember { mutableStateOf<List<ProviderDto>>(emptyList()) }
     var provider by remember { mutableStateOf("qq") }
-    var display by remember { mutableStateOf("") }
-    var address by remember { mutableStateOf("") }
+    var display by remember { mutableStateOf(editing?.displayName ?: "") }
+    var address by remember { mutableStateOf(editing?.address ?: "") }
     var code by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
-
     // 服务器地址：预设选好会自动填，但用户随时能改（自定义邮箱必须能填，
     // 否则 provider=custom 时服务端直接报「IMAP 服务器地址不能为空」）
     var imapHost by remember { mutableStateOf("") }
@@ -407,6 +455,19 @@ private fun AddAccountSheet(vm: AppVm, onClose: () -> Unit, onSaved: () -> Unit)
     // 同步范围（天 / 封），留空 = 跟全局默认
     var syncDays by remember { mutableStateOf("") }
     var syncCount by remember { mutableStateOf("") }
+
+    // 编辑模式：把已存的服务器与范围填进来（授权码不回显，留空 = 不改）
+    LaunchedEffect(editing) {
+        editing?.let {
+            provider = it.provider.ifBlank { "custom" }
+            imapHost = it.imapHost
+            imapPort = if (it.imapPort > 0) it.imapPort.toString() else ""
+            smtpHost = it.smtpHost
+            smtpPort = if (it.smtpPort > 0) it.smtpPort.toString() else ""
+            syncDays = if (it.syncDays > 0) it.syncDays.toString() else ""
+            syncCount = if (it.syncCount > 0) it.syncCount.toString() else ""
+        }
+    }
 
     LaunchedEffect(Unit) {
         runCatching { providers = Repo.emailProviders().items }
@@ -422,17 +483,18 @@ private fun AddAccountSheet(vm: AppVm, onClose: () -> Unit, onSaved: () -> Unit)
     }
 
     EditSheet(
-        title = "绑定邮箱",
+        title = if (editing == null) "绑定邮箱" else "编辑邮箱",
         onClose = onClose,
         saving = saving,
-        saveText = "绑定",
+        saveText = if (editing == null) "绑定" else "保存",
         onSave = {
             if (address.isBlank() || code.isBlank()) { vm.toast("地址和授权码都要填"); return@EditSheet }
             saving = true
             scope.launch {
                 try {
                     Repo.saveEmailAccount(
-                        Repo.AccountReq(
+                        id = editing?.id ?: 0,
+                        req = Repo.AccountReq(
                             displayName = display.ifBlank { address },
                             address = address.trim(),
                             provider = provider,
