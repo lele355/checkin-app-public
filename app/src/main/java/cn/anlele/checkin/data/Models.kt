@@ -609,6 +609,22 @@ data class ProviderDto(
 data class ProvidersDto(val items: List<ProviderDto> = emptyList())
 
 @Serializable
+data class EmailGroupDto(
+    val fromName: String = "",
+    val fromAddress: String = "",
+    val unread: Int = 0,
+    val total: Int = 0,
+    val lastSubject: String = "",
+    val lastSnippet: String = "",
+    val lastAt: String = "",
+    val lastId: Int = 0,
+    val groupKey: String = "",
+)
+
+@Serializable
+data class EmailGroupListDto(val items: List<EmailGroupDto> = emptyList(), val hasMore: Boolean = false)
+
+@Serializable
 data class MailListItemDto(
     val id: Int = 0,
     val account: String = "",

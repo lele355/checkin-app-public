@@ -71,6 +71,9 @@ object Repo {
         val smtpHost: String = "",
         val smtpPort: Int = 0,
         val authCode: String = "",
+        // 同步范围（天 / 封）。0 = 跟全局默认
+        val syncDays: Int = 0,
+        val syncCount: Int = 0,
     )
     @Serializable data class AdminUserReq(
         val username: String = "",
@@ -218,6 +221,13 @@ object Repo {
         if (id == 0) Api.post("/email/accounts", enc(req, AccountReq.serializer()))
         else Api.put("/email/accounts/$id", enc(req, AccountReq.serializer()))
     suspend fun deleteEmailAccount(id: Int) { Api.exec("DELETE", "/email/accounts/$id") }
+    @Serializable data class MarkAllReadReq(val accountId: Int = 0, val fromAddress: String = "")
+    suspend fun emailGroups(account: Int = 0): EmailGroupListDto =
+        Api.get("/email/messages/grouped?account=$account")
+    suspend fun markAllEmailRead(account: Int = 0, from: String = "") {
+        Api.exec("POST", "/email/messages/mark-all-read",
+            enc(MarkAllReadReq(account, from), MarkAllReadReq.serializer()))
+    }
     suspend fun emails(accountId: Int = 0, before: Int = 0): MailListDto {
         val qs = buildList {
             if (accountId > 0) add("account=$accountId")

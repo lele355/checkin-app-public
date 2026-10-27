@@ -37,6 +37,7 @@ import cn.anlele.checkin.data.Beian
 import cn.anlele.checkin.data.MeDto
 import cn.anlele.checkin.data.Repo
 import cn.anlele.checkin.ui.components.AppCard
+import cn.anlele.checkin.ui.components.EditSheet
 import cn.anlele.checkin.ui.components.AppField
 import cn.anlele.checkin.ui.components.ConfirmDialog
 import cn.anlele.checkin.ui.components.GroupHead
@@ -74,6 +75,7 @@ fun MeScreen(
     var newPwd2 by remember { mutableStateOf("") }
     var savingPwd by remember { mutableStateOf(false) }
     var logoutAsk by remember { mutableStateOf(false) }
+    var profileEdit by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 26.dp),
@@ -142,48 +144,18 @@ fun MeScreen(
             }
         }
 
-        // ---------- 基础资料 ----------
+        // ---------- 基础资料（只读行 + 二级编辑） ----------
+        // 三个输入框常驻在这一页，页面永远「是个表单」—— 但多数时候只是想看一眼。
+        // 改成「值在这里、点开才编辑」：平时清爽，要改点「编辑资料」进弹层。
         StaggerIn(2) {
             AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
                 Column {
                     GroupHead("基础资料")
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                        Text(
-                            "昵称会显示在导航、留言和卡片里；邮箱只有你自己和管理员看得到。",
-                            fontSize = 11.5.sp, color = p.textWeak, lineHeight = 17.sp,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        AppField("登录名", me.username, {}, enabled = false, supporting = "登录名不可自行修改，需要改请联系管理员。")
-                        Spacer(Modifier.height(11.dp))
-                        AppField("昵称", name, { name = it }, placeholder = "管理员")
-                        Spacer(Modifier.height(11.dp))
-                        AppField("联系邮箱（选填）", email, { email = it }, placeholder = "you@example.com")
-                        Spacer(Modifier.height(11.dp))
-                        AppField("个性签名（选填）", sig, { sig = it }, placeholder = "一句话介绍自己，最多 60 字", singleLine = false, minLines = 2, maxLines = 3)
-                        Spacer(Modifier.height(14.dp))
-                        PrimaryButton(
-                            "保存资料", Modifier.fillMaxWidth(),
-                            loading = savingProfile,
-                        ) {
-                            if (name.isBlank()) { vm.toast("昵称不能为空"); return@PrimaryButton }
-                            savingProfile = true
-                            scope.launch {
-                                try {
-                                    val fresh = Repo.savePrefs(
-                                        Repo.PrefsReq(displayName = name.trim(), email = email.trim(), signature = sig.trim())
-                                    )
-                                    vm.updateMe(fresh)
-                                    vm.toast("资料已保存")
-                                } catch (e: ApiException) {
-                                    vm.toast(e.message)
-                                } catch (e: Exception) {
-                                    vm.toast("保存失败")
-                                } finally {
-                                    savingProfile = false
-                                }
-                            }
-                        }
-                    }
+                    MeRow("user-cog", "登录名", trailing = me.username) { }
+                    MeRow("pencil", "昵称", trailing = name.ifBlank { "未填" }) { profileEdit = true }
+                    MeRow("mail", "联系邮箱", trailing = email.ifBlank { "未填" }) { profileEdit = true }
+                    MeRow("pencil", "个性签名", trailing = sig.ifBlank { "未填" }) { profileEdit = true }
+                    MeRow("pencil", "编辑资料", trailing = null) { profileEdit = true }
                 }
             }
         }
@@ -242,6 +214,49 @@ fun MeScreen(
             }
         }
         Spacer(Modifier.height(6.dp))
+    }
+
+    if (profileEdit) {
+        EditSheet(
+            title = "编辑资料",
+            onClose = { profileEdit = false },
+            saving = savingProfile,
+            onSave = {
+                if (name.isBlank()) { vm.toast("昵称不能为空"); return@EditSheet }
+                savingProfile = true
+                scope.launch {
+                    try {
+                        val fresh = Repo.savePrefs(
+                            Repo.PrefsReq(displayName = name.trim(), email = email.trim(), signature = sig.trim())
+                        )
+                        vm.updateMe(fresh)
+                        vm.toast("资料已保存")
+                        profileEdit = false
+                    } catch (e: ApiException) {
+                        vm.toast(e.message)
+                    } catch (e: Exception) {
+                        vm.toast("保存失败")
+                    } finally {
+                        savingProfile = false
+                    }
+                }
+            },
+        ) {
+            Text(
+                "昵称会显示在导航、留言和卡片里；邮箱只有你自己和管理员看得到。登录名（${me.username}）不可自行修改。",
+                fontSize = 12.sp, color = p.textSub,
+            )
+            Spacer(Modifier.height(12.dp))
+            AppField("昵称", name, { name = it }, placeholder = "管理员")
+            Spacer(Modifier.height(11.dp))
+            AppField("联系邮箱（选填）", email, { email = it }, placeholder = "you@example.com")
+            Spacer(Modifier.height(11.dp))
+            AppField(
+                "个性签名（选填）", sig, { sig = it },
+                placeholder = "一句话介绍自己，最多 60 字",
+                singleLine = false, minLines = 2, maxLines = 3,
+            )
+        }
     }
 
     if (logoutAsk) {

@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -82,8 +84,10 @@ fun MemoScreen(vm: AppVm) {
 
     LaunchedEffect(q) { load() }
 
+    val listState = rememberLazyListState()
     LazyColumn(
         Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 26.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -113,42 +117,60 @@ fun MemoScreen(vm: AppVm) {
                 }
             }
         } else if (view == "列表") {
-            item {
-                StaggerIn(0) {
+            // 置顶的排最前，其余按更新时间。拖不动，但顺序必须可预期。
+            val sorted = rows.sortedWith(
+                compareByDescending<MemoDto> { it.pinned }.thenByDescending { it.updatedAt }
+            )
+            items(sorted.size, key = { sorted[it].id }) { i ->
+                val m = sorted[i]
+                // animateItem：置顶/取消置顶时能看到这条「挪上去/滑下来」的过程
+                Box(Modifier.animateItem()) {
                     AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
                         Column {
-                            rows.forEachIndexed { i, m ->
-                                SiteRow(
-                                    showTopBorder = i > 0,
-                                    onClick = { editing = m; editorOpen = true },
-                                    trailing = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            if (m.pinned)
-                                                Icon(AppIcons["pin"], null, Modifier.size(13.dp), tint = p.accent)
-                                            Spacer(Modifier.width(8.dp))
-                                            TinyAction("编辑", "pencil") { editing = m; editorOpen = true }
+                            SiteRow(
+                                showTopBorder = false,
+                                onClick = { editing = m; editorOpen = true },
+                                trailing = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // 工作台同款置顶按钮：点一下切换，立刻生效
+                                        TinyAction(if (m.pinned) "取消置顶" else "置顶", "pin") {
+                                            scope.launch {
+                                                runCatching {
+                                                    Repo.updateMemo(m.id, Repo.MemoReq(m.title, m.content, !m.pinned))
+                                                }
+                                                load()
+                                            }
                                         }
-                                    },
-                                ) {
+                                        Spacer(Modifier.width(4.dp))
+                                        TinyAction("编辑", "pencil") { editing = m; editorOpen = true }
+                                    }
+                                },
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (m.pinned) {
+                                        Icon(AppIcons["pin"], null, Modifier.size(13.dp), tint = p.accent)
+                                        Spacer(Modifier.width(5.dp))
+                                    }
                                     Text(
                                         m.title, fontSize = 14.5.sp, color = p.text,
                                         fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                    )
-                                    if (m.content.isNotBlank()) {
-                                        Text(
-                                            m.content, fontSize = 12.5.sp, color = p.textSub,
-                                            maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                            lineHeight = 19.sp,
-                                            modifier = Modifier.padding(top = 2.dp),
-                                        )
-                                    }
-                                    Text(
-                                        Dates.fmt(m.updatedAt, "MM-dd HH:mm"),
-                                        fontSize = 10.5.sp,
-                                        color = p.textWeak,
-                                        modifier = Modifier.padding(top = 3.dp),
+                                        modifier = Modifier.weight(1f),
                                     )
                                 }
+                                if (m.content.isNotBlank()) {
+                                    Text(
+                                        m.content, fontSize = 12.5.sp, color = p.textSub,
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                        lineHeight = 19.sp,
+                                        modifier = Modifier.padding(top = 2.dp),
+                                    )
+                                }
+                                Text(
+                                    Dates.fmt(m.updatedAt, "MM-dd HH:mm"),
+                                    fontSize = 10.5.sp,
+                                    color = p.textWeak,
+                                    modifier = Modifier.padding(top = 3.dp),
+                                )
                             }
                         }
                     }

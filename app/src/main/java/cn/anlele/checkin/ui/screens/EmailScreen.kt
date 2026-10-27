@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import cn.anlele.checkin.AppVm
 import cn.anlele.checkin.data.ApiException
 import cn.anlele.checkin.data.EmailAccountDto
+import cn.anlele.checkin.data.EmailGroupDto
 import cn.anlele.checkin.data.MailDetailDto
 import cn.anlele.checkin.data.MailListItemDto
 import cn.anlele.checkin.data.ProviderDto
@@ -71,6 +72,9 @@ fun EmailScreen(vm: AppVm) {
     var loading by remember { mutableStateOf(true) }
     var syncing by remember { mutableStateOf(false) }
     var accountId by remember { mutableStateOf(0) }
+    // 「按时间」/「按发件人」两种看信方式；聚合把同一发件人的信并成一行
+    var groupMode by remember { mutableStateOf(false) }
+    var groups by remember { mutableStateOf<List<EmailGroupDto>>(emptyList()) }
 
     var openMail by remember { mutableStateOf<Int?>(null) }
     var detail by remember { mutableStateOf<MailDetailDto?>(null) }
@@ -88,7 +92,8 @@ fun EmailScreen(vm: AppVm) {
 
     suspend fun loadMails() {
         try {
-            mails = Repo.emails(accountId).items
+            if (groupMode) groups = Repo.emailGroups(accountId).items
+            else mails = Repo.emails(accountId).items
         } catch (e: Exception) {
             vm.toast(e.message ?: "加载失败")
         }
@@ -148,6 +153,17 @@ fun EmailScreen(vm: AppVm) {
                             syncing = false
                         }
                     }
+                }
+                TinyAction("已读", "check") {
+                    scope.launch {
+                        runCatching { Repo.markAllEmailRead(accountId) }
+                        vm.toast("已全部标为已读")
+                        loadMails()
+                    }
+                }
+                TinyAction(if (groupMode) "按时间" else "按发件人", "users") {
+                    groupMode = !groupMode
+                    scope.launch { loadMails() }
                 }
             } else {
                 TinyAction("添加", "plus") { addOpen = true }
@@ -218,9 +234,24 @@ fun EmailScreen(vm: AppVm) {
                             }
                         }
                     }
-                    items(mails.size) { i ->
-                        val m = mails[i]
-                        MailRow(m) { openMail = m.id }
+                    if (groupMode) {
+                        items(groups.size) { i ->
+                            val g = groups[i]
+                            MailGroupRow(g,
+                                onOpen = { openMail = g.lastId },
+                                onMarkRead = {
+                                    scope.launch {
+                                        runCatching { Repo.markAllEmailRead(accountId, g.groupKey) }
+                                        loadMails()
+                                    }
+                                },
+                            )
+                        }
+                    } else {
+                        items(mails.size) { i ->
+                            val m = mails[i]
+                            MailRow(m) { openMail = m.id }
+                        }
                     }
                 }
             }
@@ -237,6 +268,59 @@ fun EmailScreen(vm: AppVm) {
             addOpen = false
             scope.launch { loadAccounts() }
         })
+    }
+}
+
+/**
+ * 聚合行：同一发件人的信并成一行。
+ * 未读数用徽章显示（0 则不显示），右侧给了「这个发件人一键已读」。
+ */
+@Composable
+private fun MailGroupRow(g: EmailGroupDto, onOpen: () -> Unit, onMarkRead: () -> Unit) {
+    val p = palette
+    val who = g.fromName.ifBlank { g.fromAddress }.ifBlank { "（无发件人）" }
+    AppCard(
+        Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        padding = PaddingValues(horizontal = 13.dp, vertical = 11.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(36.dp).background(p.accentSoft, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(who.take(1), fontSize = 14.sp, color = p.accent, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.width(11.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        who, fontSize = 13.5.sp,
+                        color = if (g.unread > 0) p.text else p.textSub,
+                        fontWeight = if (g.unread > 0) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (g.unread > 0) {
+                        Box(
+                            Modifier.background(p.accent, chipShape()).padding(horizontal = 6.dp, vertical = 1.dp)
+                        ) { Text("${g.unread} 未读", fontSize = 10.sp, color = p.onAccent) }
+                    }
+                }
+                Text(
+                    g.lastSubject.ifBlank { g.lastSnippet },
+                    fontSize = 11.5.sp, color = p.textWeak,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "共 ${g.total} 封 · ${Dates.fmt(g.lastAt, "M月d日 HH:mm")}",
+                    fontSize = 10.5.sp, color = p.textWeak,
+                )
+            }
+            if (g.unread > 0) {
+                Spacer(Modifier.width(4.dp))
+                TinyAction("已读", "check") { onMarkRead() }
+            }
+        }
     }
 }
 
@@ -314,8 +398,27 @@ private fun AddAccountSheet(vm: AppVm, onClose: () -> Unit, onSaved: () -> Unit)
     var code by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
 
+    // 服务器地址：预设选好会自动填，但用户随时能改（自定义邮箱必须能填，
+    // 否则 provider=custom 时服务端直接报「IMAP 服务器地址不能为空」）
+    var imapHost by remember { mutableStateOf("") }
+    var imapPort by remember { mutableStateOf("") }
+    var smtpHost by remember { mutableStateOf("") }
+    var smtpPort by remember { mutableStateOf("") }
+    // 同步范围（天 / 封），留空 = 跟全局默认
+    var syncDays by remember { mutableStateOf("") }
+    var syncCount by remember { mutableStateOf("") }
+
     LaunchedEffect(Unit) {
         runCatching { providers = Repo.emailProviders().items }
+    }
+    // 换服务商就把地址端口填好（QQ/163 之类），用户可再改
+    LaunchedEffect(provider) {
+        providers.firstOrNull { it.key == provider }?.let { pr ->
+            if (pr.imapHost.isNotBlank()) imapHost = pr.imapHost
+            if (pr.imapPort > 0) imapPort = pr.imapPort.toString()
+            if (pr.smtpHost.isNotBlank()) smtpHost = pr.smtpHost
+            if (pr.smtpPort > 0) smtpPort = pr.smtpPort.toString()
+        }
     }
 
     EditSheet(
@@ -333,7 +436,13 @@ private fun AddAccountSheet(vm: AppVm, onClose: () -> Unit, onSaved: () -> Unit)
                             displayName = display.ifBlank { address },
                             address = address.trim(),
                             provider = provider,
+                            imapHost = imapHost.trim(),
+                            imapPort = imapPort.trim().toIntOrNull() ?: 0,
+                            smtpHost = smtpHost.trim(),
+                            smtpPort = smtpPort.trim().toIntOrNull() ?: 0,
                             authCode = code.trim(),
+                            syncDays = syncDays.trim().toIntOrNull() ?: 0,
+                            syncCount = syncCount.trim().toIntOrNull() ?: 0,
                         )
                     )
                     onSaved()
@@ -370,5 +479,50 @@ private fun AddAccountSheet(vm: AppVm, onClose: () -> Unit, onSaved: () -> Unit)
         AppField("授权码", code, { code = it }, placeholder = "16 位授权码", password = true)
         Spacer(Modifier.height(12.dp))
         AppField("显示名", display, { display = it }, placeholder = "可不填")
+
+        Spacer(Modifier.height(16.dp))
+        Text("收信服务器（IMAP）", fontSize = 12.5.sp, color = p.textSub)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.weight(2f)) {
+                AppField("服务器", imapHost, { imapHost = it }, placeholder = "imap.example.com")
+            }
+            Box(Modifier.weight(1f)) {
+                AppField("端口", imapPort, { imapPort = it }, placeholder = "993",
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("发信服务器（SMTP，不发信可不填）", fontSize = 12.5.sp, color = p.textSub)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.weight(2f)) {
+                AppField("服务器", smtpHost, { smtpHost = it }, placeholder = "smtp.example.com")
+            }
+            Box(Modifier.weight(1f)) {
+                AppField("端口", smtpPort, { smtpPort = it }, placeholder = "465",
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text("同步范围（留空 = 跟全局默认）", fontSize = 12.5.sp, color = p.textSub)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.weight(1f)) {
+                AppField("最近 N 天", syncDays, { syncDays = it }, placeholder = "跟默认",
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+            }
+            Box(Modifier.weight(1f)) {
+                AppField("最近 N 封", syncCount, { syncCount = it }, placeholder = "跟默认",
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "163/126 邮箱：先在网页版「设置 → POP3/SMTP/IMAP」里打开 IMAP/SMTP 服务，用生成的授权码；" +
+                "发信时发件人必须是这个账号本身。",
+            fontSize = 11.sp, color = p.textWeak, lineHeight = 16.sp,
+        )
     }
 }

@@ -1,5 +1,6 @@
 package cn.anlele.checkin.ui.screens
 
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -72,6 +73,8 @@ import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.palette
 import cn.anlele.checkin.util.Dates
 import kotlinx.coroutines.launch
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 
 /**
  * 工作台 —— 结构照网页手机端（390px）来，但**卡片顺序由用户决定**：
@@ -1013,6 +1016,12 @@ private fun DashSection(
             modifier = Modifier.padding(bottom = 10.dp),
         )
     }
+    val density = LocalDensity.current
+    val rowPx = with(density) { 54.dp.toPx() }
+    // 长按拖动：按住一行上下拖，跨过一行高就把它挪到相邻位置（与旁边的上/下箭头同一套 move）
+    var dragId by remember { mutableStateOf<String?>(null) }
+    var dragAccum by remember { mutableStateOf(0f) }
+
     ids.forEachIndexed { i, id ->
         DashRow(
             name = names[id] ?: id,
@@ -1021,10 +1030,31 @@ private fun DashSection(
             isHidden = title == "已隐藏",
             canUp = i > 0,
             canDown = i < ids.size - 1,
+            dragging = dragId == id,
             onPin = { onPin(id) },
             onVisible = { onVisible(id, it) },
             onUp = { onMove(id, -1) },
             onDown = { onMove(id, 1) },
+            modifier = Modifier
+                .pointerInput(id) {
+                    if (title == "已隐藏") return@pointerInput   // 隐藏的卡排位置没意义
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { dragId = id; dragAccum = 0f },
+                        onDragEnd = { dragId = null },
+                        onDragCancel = { dragId = null },
+                        onDrag = { change, amount ->
+                            change.consume()
+                            dragAccum += amount.y
+                            val steps = (dragAccum / rowPx).toInt()
+                            if (steps != 0) {
+                                repeat(kotlin.math.abs(steps)) {
+                                    onMove(id, if (steps > 0) 1 else -1)
+                                }
+                                dragAccum -= steps * rowPx
+                            }
+                        },
+                    )
+                },
         )
     }
 }
@@ -1032,6 +1062,8 @@ private fun DashSection(
 @Composable
 private fun DashRow(
     name: String,
+    modifier: Modifier = Modifier,
+    dragging: Boolean = false,
     pinned: Boolean,
     visible: Boolean,
     isHidden: Boolean,
@@ -1044,11 +1076,12 @@ private fun DashRow(
 ) {
     val p = palette
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .padding(bottom = 6.dp)
             .clip(chipShape())
-            .background(p.cardSoft)
+            // 拖着走的那行抬起来一点：换成强调色底 + 阴影，能看见「我现在抓的是哪一行」
+            .background(if (dragging) p.accentSoft else p.cardSoft)
             .padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
