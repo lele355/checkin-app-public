@@ -68,6 +68,7 @@ import cn.anlele.checkin.ui.screens.ExpensesScreen
 import cn.anlele.checkin.ui.screens.ExportScreen
 import cn.anlele.checkin.ui.screens.HabitsScreen
 import cn.anlele.checkin.ui.screens.InvitesScreen
+import cn.anlele.checkin.ui.components.ChangelogSheet
 import cn.anlele.checkin.ui.components.UpdateSheet
 import cn.anlele.checkin.ui.screens.MeScreen
 import cn.anlele.checkin.ui.screens.SettingsScreen
@@ -296,6 +297,7 @@ fun MainShell(vm: AppVm, me: MeDto) {
         UpdateSheet(vm, onClose = { showUpdate = false })
     }
 
+
     if (showPrefs) {
         PrefsSheet(vm, me, onClose = { showPrefs = false })
     }
@@ -328,9 +330,12 @@ private fun ScreenHost(
     onAccounts: () -> Unit,
     go: (String) -> Unit,
 ) {
-    // 「检查更新」沿用原来那个弹层，只是入口从「我的」挪到了「设置」
+    // 「检查更新」「更新日志」两个弹层都在这里开（入口在设置页）
     var updateSheet by remember { mutableStateOf(false) }
     if (updateSheet) UpdateSheet(vm, onClose = { updateSheet = false })
+
+    var changelogSheet by remember { mutableStateOf(false) }
+    if (changelogSheet) ChangelogSheet(onClose = { changelogSheet = false })
 
     when (route) {
         "workbench" -> DashboardScreen(vm, me, go)
@@ -361,6 +366,7 @@ private fun ScreenHost(
             onAccounts = onAccounts,
             onLogout = { vm.logout() },
             onUpdate = { updateSheet = true },
+            onChangelog = { changelogSheet = true },
         )
         "notify" -> NotifyScreen(vm)
         else -> DashboardScreen(vm, me, go)

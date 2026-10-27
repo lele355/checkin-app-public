@@ -71,6 +71,7 @@ fun SettingsScreen(
     onAccounts: () -> Unit,
     onLogout: () -> Unit,
     onUpdate: () -> Unit,
+    onChangelog: () -> Unit,
 ) {
     val p = palette
     val ctx = LocalContext.current
@@ -195,6 +196,7 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     SetRow("rotate-ccw", "检查更新", trailing = UpdateKit.localName, noPadding = true) { onUpdate() }
+                    SetRow("list", "更新日志", trailing = "全部版本", noPadding = true) { onChangelog() }
                     Spacer(Modifier.height(6.dp))
                     // 法规要求：备案信息要在显著位置可查
                     Text("ICP 备案 ${Beian.appIcp(vm.ui.beiAn)}", fontSize = 11.sp, color = p.textWeak)

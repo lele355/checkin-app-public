@@ -612,6 +612,17 @@ data class ProviderDto(
 data class ProvidersDto(val items: List<ProviderDto> = emptyList())
 
 @Serializable
+data class ChangelogItemDto(
+    val version: String = "",
+    val versionCode: Int = 0,
+    val date: String = "",
+    val notes: String = "",
+)
+
+@Serializable
+data class ChangelogDto(val items: List<ChangelogItemDto> = emptyList())
+
+@Serializable
 data class EmailGroupDto(
     val fromName: String = "",
     val fromAddress: String = "",

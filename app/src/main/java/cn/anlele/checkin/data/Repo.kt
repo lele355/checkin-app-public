@@ -268,4 +268,5 @@ object Repo {
     // ---------- 导出 / 版本 ----------
     suspend fun exportAll(): ExportDto = Api.get("/export/all", cache = false)
     suspend fun version(): VersionDto = Api.get("/app/version")
+    suspend fun changelog(): ChangelogDto = Api.get("/app/changelog")
 }
