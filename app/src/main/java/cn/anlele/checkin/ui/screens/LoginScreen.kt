@@ -112,6 +112,8 @@ fun LoginScreen(vm: AppVm) {
 
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    // 注册做成 App 内表单（以前跳浏览器，注册完还得回来重输一遍账号密码）
+    var registerOpen by rememberSaveable { mutableStateOf(false) }
 
     // 打开就填好上次记住的账号密码。只在「当前为空」时填，避免覆盖用户正在输入的内容。
     LaunchedEffect(state.savedUser, state.savedPass) {
@@ -269,7 +271,7 @@ fun LoginScreen(vm: AppVm) {
                 onClick = { submit() },
             )
 
-            // ---------- 自助注册（网页专属流程，跳浏览器） ----------
+            // ---------- 自助注册（App 内表单，不再跳浏览器） ----------
             Spacer(Modifier.height(14.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("有邀请码？", fontSize = 12.sp, color = p.textSub)
@@ -280,7 +282,7 @@ fun LoginScreen(vm: AppVm) {
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier
                         .clip(chipShape())
-                        .clickable { runCatching { uri.openUri("$SITE/Register") } }
+                        .clickable { registerOpen = true }
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                 )
             }
@@ -321,13 +323,21 @@ fun LoginScreen(vm: AppVm) {
         )
         Spacer(Modifier.height(28.dp))
     }
+    // 注册弹层：注册成功后直接带着刚才填的账号密码登录，不用再回来输一遍
+    if (registerOpen) {
+        RegisterSheet(
+            vm = vm,
+            onClose = { registerOpen = false },
+            onRegistered = { u, pw ->
+                registerOpen = false
+                username = u
+                password = pw
+                vm.login(u, pw)
+            },
+        )
+    }
 }
 
-/**
- * 卡片外壳 —— 不直接用 AppCard，因为登录卡片在网页端是「一屏主容器」：
- * 圆角取 radiusCard、背景走 cardBrush（clay 渐变）、有边框就描边框、新拟物给外阴影。
- * 与 AppCard 的差别只有内边距更大（网页登录卡片 padding 20px，窄屏 11px，这里折中 18dp）。
- */
 @Composable
 private fun LoginCard(p: Palette, content: @Composable () -> Unit) {
     val shape = RoundedCornerShape(p.radiusCard)

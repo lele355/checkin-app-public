@@ -267,6 +267,16 @@ object Repo {
 
     // ---------- 导出 / 版本 ----------
     suspend fun exportAll(): ExportDto = Api.get("/export/all", cache = false)
+    @Serializable data class RegisterReq(
+        val code: String,
+        val username: String,
+        val displayName: String = "",
+        val password: String,
+    )
+    /** 自助注册（App 内，不跳网页） */
+    suspend fun register(req: RegisterReq): IdDto =
+        Api.post("/auth/register", enc(req, RegisterReq.serializer()))
+
     suspend fun version(): VersionDto = Api.get("/app/version")
     suspend fun changelog(): ChangelogDto = Api.get("/app/changelog")
 }

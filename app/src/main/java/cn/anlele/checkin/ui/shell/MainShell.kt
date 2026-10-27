@@ -310,6 +310,10 @@ fun MainShell(vm: AppVm, me: MeDto) {
             onSwitch = { acc ->
                 showAccounts = false
                 vm.switchAccount(acc)
+                // 切号后必须回工作台：上一个账号停在哪一页（比如某个管理页）对下一个账号毫无意义，
+                // 直接停在那儿还可能因为权限不同而白屏。
+                stack.clear()
+                route = "workbench"
             },
             onForget = { acc -> vm.forgetAccount(acc.username) },
             onManualLogin = {
