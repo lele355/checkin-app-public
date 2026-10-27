@@ -102,7 +102,14 @@ fun EmailScreen(vm: AppVm) {
 
     LaunchedEffect(tab, accountId) {
         loading = true
-        if (tab == 0) loadMails() else loadAccounts()
+        if (tab == 0) {
+            // ⚠️ 进收件箱也必须先拉账号列表：顶部「全部 / 各邮箱」那排按钮是拿 accounts 渲染的，
+            // 不拉就是空的 —— 以前只有切到「账号」页再切回来才补上，看着像那栏丢了。
+            if (accounts.isEmpty()) loadAccounts()
+            loadMails()
+        } else {
+            loadAccounts()
+        }
         loading = false
     }
 
