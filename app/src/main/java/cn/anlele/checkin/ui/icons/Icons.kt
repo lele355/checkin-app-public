@@ -38,6 +38,7 @@ object AppIcons {
         "plus" to "M5 12h14 M12 5v14",
         "x" to "M18 6 6 18 m6 6 12 12",
         // 纯对勾（无外圈）：小尺寸下 check 那个「圆圈里打勾」会糊成一个圈
+        "copy" to "M9 9H20A2 2 0 0 1 22 11V20A2 2 0 0 1 20 22H9A2 2 0 0 1 7 20V11A2 2 0 0 1 9 9Z M5 15H4A2 2 0 0 1 2 13V4A2 2 0 0 1 4 2H13A2 2 0 0 1 15 4V5",
         "check-plain" to "M20 6 9 17l-5-5",
         "menu" to "M4 5h16 M4 12h16 M4 19h16",
         "arrow-left" to "m12 19-7-7 7-7 M19 12H5",

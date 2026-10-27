@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 fun InvitesScreen(vm: AppVm) {
     val p = palette
     val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     var rows by remember { mutableStateOf<List<InviteDto>>(emptyList()) }
     var roles by remember { mutableStateOf<List<RoleBriefDto>>(emptyList()) }
     var siteUrl by remember { mutableStateOf("") }
@@ -101,6 +102,9 @@ fun InvitesScreen(vm: AppVm) {
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 1.sp,
                         )
+                        // 一键复制：邀请码长得像乱码，手抄必错（还容易被输入法改大小写）
+                        Spacer(Modifier.width(6.dp))
+                        TinyAction("复制", "copy") { copyToClipboard(ctx, v.code); vm.toast("已复制邀请码") }
                         Spacer(Modifier.weight(1f))
                         val (label, tone) = when {
                             v.used -> "已使用" to p.textWeak
@@ -161,7 +165,14 @@ fun InvitesScreen(vm: AppVm) {
                 }
             },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { freshCode = null }) { Text("知道了", color = p.accent) }
+                Row {
+                    // 刚生成的码最适合直接复制发出去
+                    androidx.compose.material3.TextButton(onClick = {
+                        copyToClipboard(ctx, freshCode!!)
+                        vm.toast("已复制邀请码")
+                    }) { Text("复制", color = p.accent) }
+                    androidx.compose.material3.TextButton(onClick = { freshCode = null }) { Text("知道了", color = p.accent) }
+                }
             },
         )
     }
@@ -220,4 +231,11 @@ private fun InviteCreateSheet(
         AppField("有效天数", days, { days = it.filter { c -> c.isDigit() }.take(2) }, supporting = "1～90 天，默认 7 天")
         Spacer(Modifier.width(0.dp))
     }
+
+}
+
+/** 复制到系统剪贴板（Android 13+ 系统自己会弹「已复制」提示，这里不再重复弹） */
+private fun copyToClipboard(ctx: android.content.Context, text: String) {
+    val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    cm.setPrimaryClip(android.content.ClipData.newPlainText("邀请码", text))
 }
