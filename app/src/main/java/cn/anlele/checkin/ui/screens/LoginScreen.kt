@@ -272,19 +272,26 @@ fun LoginScreen(vm: AppVm) {
             )
 
             // ---------- 自助注册（App 内表单，不再跳浏览器） ----------
-            Spacer(Modifier.height(14.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("有邀请码？", fontSize = 12.sp, color = p.textSub)
+            // ⚠️ 整行可点、高度 44dp：以前只有「自助注册」四个小字带 4dp 内边距，
+            // 点击区域约 50×18dp，手指很容易点偏 —— 用户会以为「点了没反应」。
+            Spacer(Modifier.height(10.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(chipShape())
+                    .clickable(onClick = { registerOpen = true })
+                    .padding(vertical = 12.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("有邀请码？", fontSize = 12.5.sp, color = p.textSub)
                 Text(
                     "自助注册",
-                    fontSize = 12.sp,
+                    fontSize = 12.5.sp,
                     color = p.accent,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier
-                        .clip(chipShape())
-                        .clickable { registerOpen = true }
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    fontWeight = FontWeight.SemiBold,
                 )
+                Text("  ›", fontSize = 12.5.sp, color = p.accent)
             }
         }
 

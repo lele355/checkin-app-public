@@ -92,9 +92,9 @@ fun RegisterSheet(
         )
         Spacer(Modifier.height(14.dp))
 
-        AppField("邀请码", code, { code = it }, placeholder = "ANLE-8F3K-2Q7M")
+        AppField("邀请码", code, { code = it.uppercase() }, placeholder = "ANLE-8F3K-2Q7M（横杠可省略）")
         Spacer(Modifier.height(11.dp))
-        AppField("用户名", username, { username = it }, placeholder = "登录用，2–20 位")
+        AppField("用户名", username, { username = it }, placeholder = "登录用，2–20 位，中英文都行")
         Spacer(Modifier.height(11.dp))
         AppField("昵称（选填）", display, { display = it }, placeholder = "不填就用用户名")
         Spacer(Modifier.height(11.dp))
