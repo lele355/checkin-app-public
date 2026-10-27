@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -68,6 +69,10 @@ fun SiteSwitch(
     ) {
         Box(
             Modifier
+                // ⚠️ 必须显式 align(CenterStart)：Box 的子元素默认是 TopStart，
+                // 只写 offset(x=…) 的话圆会贴着轨道上沿，上下留白一宽一窄（看起来像「圆偏了」）。
+                // 这里每个开关都是同一个组件，改这一处全站生效。
+                .align(Alignment.CenterStart)
                 .offset(x = offsetX)
                 .size(thumb)
                 .clip(CircleShape)
