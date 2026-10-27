@@ -210,6 +210,9 @@ data class DashLayout(
      */
     fun arrange(defaults: List<String>): List<String> {
         val out = ArrayList<String>(defaults.size)
+        // 问候块永远第一：它是「今天概览」的入口，不该被任何置顶卡片挤到下面去。
+        // 用户仍然可以在「自定义工作台」里把它隐藏掉（hidden 优先级更高）。
+        if ("hello" in defaults && "hello" !in hidden) out.add("hello")
         for (id in pinned + order) if (id in defaults && id !in out && id !in hidden) out.add(id)
         for (id in defaults) if (id !in out && id !in hidden) out.add(id)
         return out

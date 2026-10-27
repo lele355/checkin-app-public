@@ -56,6 +56,30 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     var ui by mutableStateOf(UiState())
         private set
 
+    // ---------- 本机偏好：更新检查节奏 / 权限是否已问过 ----------
+    // 放 SharedPreferences 而不是服务端：这些是「这台手机」的事，换设备重来一次也无所谓。
+    private val health = app.getSharedPreferences("app_health", android.content.Context.MODE_PRIVATE)
+
+    /** 自动检查更新（设置页可关，默认开） */
+    var autoUpdateCheck: Boolean
+        get() = health.getBoolean("auto_update", true)
+        set(v) { health.edit().putBoolean("auto_update", v).apply() }
+
+    /** 上次自动检查更新的时间戳（毫秒）。用来做「每天最多一次」 */
+    var lastUpdateCheck: Long
+        get() = health.getLong("last_update_check", 0L)
+        set(v) { health.edit().putLong("last_update_check", v).apply() }
+
+    /** 是否已经主动请求过通知权限（首次进 App 问一次，之后不再骚扰） */
+    var permAsked: Boolean
+        get() = health.getBoolean("perm_asked", false)
+        set(v) { health.edit().putBoolean("perm_asked", v).apply() }
+
+    /** 顶部权限提醒被忽略到什么时候（毫秒）。忽略后 7 天内不再顶 */
+    var permSnoozeUntil: Long
+        get() = health.getLong("perm_snooze_until", 0L)
+        set(v) { health.edit().putLong("perm_snooze_until", v).apply() }
+
     /** 通知点进来要跳的页面（由 MainActivity 从 intent 写入，MainShell 消费） */
     var pendingRoute: String? by mutableStateOf(null)
         private set

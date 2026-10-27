@@ -481,6 +481,66 @@ fun BannerBar(text: String, modifier: Modifier = Modifier, tone: BannerTone = Ba
 
 enum class BannerTone { Info, Warn, Error }
 
+/**
+ * 可关闭的顶部提醒条：一句话 + 一个动作 + 一个 × 。
+ *
+ * 与 [BannerBar] 的区别：BannerBar 是「状态说明」（离线、出错），没得关；
+ * 这个是「要你处理但不强制」的事（没开权限、有新版本），必须能一键忽略 ——
+ * 否则用户不想开权限就得天天看它，反而是骚扰。
+ */
+@Composable
+fun NoticeBar(
+    text: String,
+    action: String,
+    onAction: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    tone: BannerTone = BannerTone.Info,
+) {
+    val p = palette
+    val (bg, fg) = when (tone) {
+        BannerTone.Info -> p.accentSoft to p.text
+        BannerTone.Warn -> Color(0xFFFFF4E5) to Color(0xFF8A5A11)
+        BannerTone.Error -> Color(0xFFFFEBEA) to Color(0xFFB3261E)
+    }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 5.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(bg)
+            .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            fontSize = 12.5.sp,
+            color = fg,
+            lineHeight = 17.sp,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            action,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.Medium,
+            color = fg,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onAction)
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+        )
+        Box(
+            Modifier
+                .size(24.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onClose),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(AppIcons["x"], "忽略", Modifier.size(13.dp), tint = fg.copy(alpha = .65f))
+        }
+    }
+}
+
 /** Toast 风格的轻提示（走 Scaffold 的 SnackbarHost） */
 suspend fun SnackbarHostState.toast(msg: String) {
     currentSnackbarData?.dismiss()

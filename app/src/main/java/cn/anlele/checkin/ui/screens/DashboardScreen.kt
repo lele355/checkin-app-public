@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
@@ -138,8 +140,24 @@ fun DashboardScreen(vm: AppVm, me: MeDto, go: (String) -> Unit) {
     val available = availableCards(me, d)
     val ordered = layout.arrange(available)
 
+    val listState = rememberLazyListState()
+    // 置顶时把这块滚到眼前：置顶是「我要一直看到它」，只把它挪到上面用户还得自己滑上去找，
+    // 所以顺手滚过去 —— 让「置顶这件事」被看见。
+    fun onPin(id: String) {
+        val wasPinned = layout.isPinned(id)
+        vm.saveDashboardLayout(layout.togglePin(id))
+        if (!wasPinned) {
+            scope.launch {
+                kotlinx.coroutines.delay(160)   // 等这一帧重组完，位置才排定
+                // 问候块常驻第一（index 0），置顶区从它后面开始
+                listState.animateScrollToItem(if ("hello" in ordered) 1 else 0)
+            }
+        }
+    }
+
     LazyColumn(
         Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 26.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -211,12 +229,15 @@ fun DashboardScreen(vm: AppVm, me: MeDto, go: (String) -> Unit) {
         // ---------- 可自定义的卡片 ----------
         items(ordered.size, key = { ordered[it] }) { i ->
             val id = ordered[i]
+            // animateItem：卡片换位置时做补间，置顶/取消置顶能看见它「挪上去」的过程，
+            // 而不是「刷新一下突然出现在最上面」。
+            Box(Modifier.animateItem()) {
             StaggerIn(i) {
                 when (id) {
                     "hello" -> GreetingCard(
                         me, d,
-                        pinned = layout.isPinned(id),
-                        onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                        pinned = true,
+                        onTogglePin = null,
                         onCustom = { customOpen = true },
                         onRefresh = { scope.launch { load() } },
                     )
@@ -224,14 +245,14 @@ fun DashboardScreen(vm: AppVm, me: MeDto, go: (String) -> Unit) {
                     "reminders" -> if (d != null) ReminderCard(
                         d.reminderCount,
                         pinned = layout.isPinned(id),
-                        onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                        onTogglePin = { onPin(id) },
                         onOpen = { go("reminders") },
                     )
 
                     "habits" -> if (d != null) HabitsCard(
                         d,
                         pinned = layout.isPinned(id),
-                        onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                        onTogglePin = { onPin(id) },
                         onOpen = { go("habits") },
                         onReload = { scope.launch { load() } },
                     )
@@ -239,21 +260,21 @@ fun DashboardScreen(vm: AppVm, me: MeDto, go: (String) -> Unit) {
                     "courses" -> if (d != null) CoursesCard(
                         d,
                         pinned = layout.isPinned(id),
-                        onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                        onTogglePin = { onPin(id) },
                         onOpen = { go("courses") },
                     )
 
                     "schedule" -> if (d != null) ScheduleCard(
                         d,
                         pinned = layout.isPinned(id),
-                        onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                        onTogglePin = { onPin(id) },
                         onOpen = { go("schedule") },
                     )
 
                     "memo" -> if (d != null) MemoCard(
                         d,
                         pinned = layout.isPinned(id),
-                        onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                        onTogglePin = { onPin(id) },
                         onOpen = { go("memo") },
                     )
 
@@ -261,7 +282,7 @@ fun DashboardScreen(vm: AppVm, me: MeDto, go: (String) -> Unit) {
                         AnnivCard(
                             a,
                             pinned = layout.isPinned(id),
-                            onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                            onTogglePin = { onPin(id) },
                             onOpen = { go("anniversary") },
                         )
                     }
@@ -270,7 +291,7 @@ fun DashboardScreen(vm: AppVm, me: MeDto, go: (String) -> Unit) {
                         MailCard(
                             mail,
                             pinned = layout.isPinned(id),
-                            onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                            onTogglePin = { onPin(id) },
                             onOpen = { go("email") },
                         )
                     }
@@ -278,7 +299,7 @@ fun DashboardScreen(vm: AppVm, me: MeDto, go: (String) -> Unit) {
                     "board" -> if (d != null) BoardCard(
                         d,
                         pinned = layout.isPinned(id),
-                        onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                        onTogglePin = { onPin(id) },
                         onOpen = { go("board") },
                     )
 
@@ -286,7 +307,7 @@ fun DashboardScreen(vm: AppVm, me: MeDto, go: (String) -> Unit) {
                         ExpenseCard(
                             e,
                             pinned = layout.isPinned(id),
-                            onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                            onTogglePin = { onPin(id) },
                             onOpen = { go("expense") },
                         )
                     }
@@ -295,7 +316,7 @@ fun DashboardScreen(vm: AppVm, me: MeDto, go: (String) -> Unit) {
                         CoupleCard(
                             c,
                             pinned = layout.isPinned(id),
-                            onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                            onTogglePin = { onPin(id) },
                             onOpen = { go("couples") },
                         )
                     }
@@ -304,12 +325,13 @@ fun DashboardScreen(vm: AppVm, me: MeDto, go: (String) -> Unit) {
                         PeriodCard(
                             pr,
                             pinned = layout.isPinned(id),
-                            onTogglePin = { vm.saveDashboardLayout(layout.togglePin(id)) },
+                            onTogglePin = { onPin(id) },
                             onOpen = { go("period") },
                         )
                     }
                 }
             }
+            }   // Box(animateItem)
         }
 
         if (d == null) return@LazyColumn
@@ -512,7 +534,8 @@ private fun GreetingCard(
     me: MeDto,
     d: DashboardDto?,
     pinned: Boolean,
-    onTogglePin: () -> Unit,
+    // 传 null = 不显示置顶按钮。问候块永远在第一块，没有「置顶/取消」的意义。
+    onTogglePin: (() -> Unit)?,
     onCustom: () -> Unit,
     onRefresh: () -> Unit,
 ) {
@@ -541,7 +564,7 @@ private fun GreetingCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     HeaderIcon("rotate-ccw", "刷新", onRefresh)
                     HeaderIcon("settings-2", "自定义工作台", onCustom)
-                    PinButton(pinned, onTogglePin)
+                    if (onTogglePin != null) PinButton(pinned, onTogglePin)
                 }
             }
             if (me.permissionLabels.isNotEmpty()) {

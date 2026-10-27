@@ -43,7 +43,6 @@ import cn.anlele.checkin.ui.components.GroupHead
 import cn.anlele.checkin.ui.components.PrimaryButton
 import cn.anlele.checkin.ui.components.SecondaryButton
 import cn.anlele.checkin.ui.components.StaggerIn
-import cn.anlele.checkin.ui.components.UpdateSheet
 import cn.anlele.checkin.ui.icons.AppIcons
 import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.palette
@@ -75,7 +74,6 @@ fun MeScreen(
     var newPwd2 by remember { mutableStateOf("") }
     var savingPwd by remember { mutableStateOf(false) }
     var logoutAsk by remember { mutableStateOf(false) }
-    var updateOpen by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 26.dp),
@@ -230,48 +228,16 @@ fun MeScreen(
             }
         }
 
-        // ---------- 快捷入口 ----------
+        // ---------- 设置入口 ----------
+        // 外观、通知、权限、更新、导出、账号、备案信息全搬到独立的「设置」页了。
+        // 「我的」只留个人资料与改密码 —— 一个是常看常改的，一个是一学期点两次的。
         StaggerIn(4) {
             AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
                 Column {
                     GroupHead("更多")
+                    MeRow("settings-2", "设置", trailing = "外观 / 通知 / 更新") { go("settings") }
                     MeRow("arrow-left-right", "切换账号", trailing = if (vm.ui.accounts.size > 1) "${vm.ui.accounts.size - 1} 个可选" else null) { onAccounts() }
-                    MeRow("bell", "通知设置") { go("notify") }
-                    MeRow("download", "导出数据") { go("export") }
-                    // 应用商店没上架（自用邀请制），系统不会主动提示更新，
-                    // 所以更新入口得自己做。右边带上当前版本号，省得用户去「关于」里找。
-                    MeRow("rotate-ccw", "检查更新", trailing = cn.anlele.checkin.BuildConfig.VERSION_NAME) { updateOpen = true }
                     MeRow("log-out", "退出登录", danger = true) { logoutAsk = true }
-                }
-            }
-        }
-
-        StaggerIn(5) {
-            AppCard(Modifier.fillMaxWidth(), PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
-                Column {
-                    Text("关于", fontSize = 13.sp, color = p.textSub, fontWeight = FontWeight.Medium)
-                    Spacer(Modifier.height(7.dp))
-                    Text(
-                        "日常管理 ${cn.anlele.checkin.BuildConfig.VERSION_NAME}（原生版）",
-                        fontSize = 11.sp, color = p.textWeak, lineHeight = 18.sp,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    // 法规要求：在 App 显著位置标明备案编号，并在编号下方链接备案系统查询页。
-                    // 注意 ICP 号用的是「-2A」（App 的号），不是网站的「-1」。
-                    // 号优先用服务端下发的（补正换号不用发版），拉不到回落到内置值。
-                    BeianLine("ICP 备案", Beian.appIcp(vm.ui.beiAn), Beian.ICP_URL)
-                    // 公安联网备案：编号是按域名/网站发的，App 不发号（公共查询里查 App 只有状态，
-                    // 查网站才有「公安备案号」那一行）。所以 App 侧写「已备案」+ 核验入口，
-                    // 既不编号，也不能拿网站的 01655 顶上 —— 那是另一个主体的服务项。
-                    val hasCode = Beian.hasPoliceCode(vm.ui.policeBeiAn)
-                    BeianLine(
-                        label = "公安备案",
-                        code = Beian.policeText(vm.ui.policeBeiAn),
-                        url = Beian.policeUrl(vm.ui.policeBeiAn),
-                        strong = hasCode,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text("自用小站 · 仅限受邀成员", fontSize = 11.sp, color = p.textWeak)
                 }
             }
         }
@@ -289,9 +255,6 @@ fun MeScreen(
         )
     }
 
-    if (updateOpen) {
-        UpdateSheet(vm, onClose = { updateOpen = false })
-    }
 }
 
 /** 我的数据：2 行 × 4 列，点一格跳到对应模块 */

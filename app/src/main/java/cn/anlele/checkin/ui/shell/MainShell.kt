@@ -68,7 +68,9 @@ import cn.anlele.checkin.ui.screens.ExpensesScreen
 import cn.anlele.checkin.ui.screens.ExportScreen
 import cn.anlele.checkin.ui.screens.HabitsScreen
 import cn.anlele.checkin.ui.screens.InvitesScreen
+import cn.anlele.checkin.ui.components.UpdateSheet
 import cn.anlele.checkin.ui.screens.MeScreen
+import cn.anlele.checkin.ui.screens.SettingsScreen
 import cn.anlele.checkin.ui.screens.MemoScreen
 import cn.anlele.checkin.ui.screens.NotifyScreen
 import cn.anlele.checkin.ui.screens.PeriodScreen
@@ -81,6 +83,20 @@ import cn.anlele.checkin.ui.theme.cardShape
 import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.palette
 import kotlinx.coroutines.launch
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import cn.anlele.checkin.data.Repo
+import cn.anlele.checkin.data.VersionDto
+import cn.anlele.checkin.push.NotifyHelper
+import cn.anlele.checkin.ui.components.NoticeBar
+import cn.anlele.checkin.update.UpdateKit
 
 /**
  * 主框架：侧栏抽屉 + 顶栏 + 页面容器。
@@ -103,11 +119,51 @@ fun MainShell(vm: AppVm, me: MeDto) {
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
     var showPrefs by remember { mutableStateOf(false) }
     var showAccounts by remember { mutableStateOf(false) }
+    var showUpdate by remember { mutableStateOf(false) }
+
+    // ---------- 权限 / 更新：顶部提醒 ----------
+    val ctx = LocalContext.current
+    var permMissing by remember { mutableStateOf(!NotifyHelper.hasPermission(ctx)) }
+    var updateInfo by remember { mutableStateOf<VersionDto?>(null) }
+    var permDismissed by remember { mutableStateOf(false) }
+    var updateDismissed by remember { mutableStateOf(false) }
+
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { permMissing = !NotifyHelper.hasPermission(ctx) }
+
+    // 首次进 App 主动问一次通知权限（只问一次，之后靠顶部提醒引导）
+    LaunchedEffect(Unit) {
+        if (!vm.permAsked && !NotifyHelper.hasPermission(ctx) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            vm.permAsked = true
+            permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    // 从系统设置回来 / 切后台再回来，都要重新读权限 —— 用户可能刚在里面打开
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) permMissing = !NotifyHelper.hasPermission(ctx)
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+
+    // 自动检查更新：默认每天一次（设置里可关）。失败静默，不打扰。
+    LaunchedEffect(Unit) {
+        if (!vm.autoUpdateCheck) return@LaunchedEffect
+        val now = System.currentTimeMillis()
+        if (now - vm.lastUpdateCheck < 20L * 3600 * 1000) return@LaunchedEffect
+        vm.lastUpdateCheck = now
+        runCatching { Repo.version() }.getOrNull()?.let { if (UpdateKit.hasUpdate(it)) updateInfo = it }
+    }
 
     fun titleOf(code: String): String =
         me.nav.firstOrNull { it.code == code }?.label
             ?: when (code) {
                 "me" -> "我的"
+                "settings" -> "设置"
                 "prefs" -> "偏好设置"
                 "notify" -> "通知设置"
                 else -> "日常管理"
@@ -178,7 +234,7 @@ fun MainShell(vm: AppVm, me: MeDto) {
                     canBack = canBack,
                     onBack = { back() },
                     onMenu = { scope.launch { drawer.open() } },
-                    onPrefs = { showPrefs = true },
+                    onPrefs = { go("settings") },
                     userInitial = me.displayName.take(1).ifBlank { "我" },
                     onUser = { go("me") },
                 )
@@ -196,6 +252,31 @@ fun MainShell(vm: AppVm, me: MeDto) {
                         BannerTone.Warn,
                     )
                 }
+                // 通知权限没开：顶一条，可一键忽略（忽略后 7 天内不再顶）
+                if (permMissing && !permDismissed && System.currentTimeMillis() > vm.permSnoozeUntil) {
+                    NoticeBar(
+                        text = "通知权限没开，打卡 / 日程提醒可能收不到",
+                        action = "去开启",
+                        onAction = { go("settings") },
+                        onClose = {
+                            permDismissed = true
+                            vm.permSnoozeUntil = System.currentTimeMillis() + 7L * 24 * 3600 * 1000
+                        },
+                        tone = BannerTone.Warn,
+                    )
+                }
+                // 有新版本
+                updateInfo?.let { info ->
+                    if (!updateDismissed) {
+                        NoticeBar(
+                            text = "发现新版本 ${info.version}，点这里看更新内容",
+                            action = "查看",
+                            onAction = { showUpdate = true },
+                            onClose = { updateDismissed = true },
+                            tone = BannerTone.Info,
+                        )
+                    }
+                }
                 // 页面切换用 key(route) 直接换：侧栏切换本来就该是「立刻换掉」，
                 // 之前用 AnimatedContent 做滑动过渡，在低端机/软件渲染下会出现
                 // 「标题已经变了、内容还停在上一页」的鬼影，加了 key 才彻底解决。
@@ -209,6 +290,10 @@ fun MainShell(vm: AppVm, me: MeDto) {
                 }
             }
         }
+    }
+
+    if (showUpdate) {
+        UpdateSheet(vm, onClose = { showUpdate = false })
     }
 
     if (showPrefs) {
@@ -243,6 +328,10 @@ private fun ScreenHost(
     onAccounts: () -> Unit,
     go: (String) -> Unit,
 ) {
+    // 「检查更新」沿用原来那个弹层，只是入口从「我的」挪到了「设置」
+    var updateSheet by remember { mutableStateOf(false) }
+    if (updateSheet) UpdateSheet(vm, onClose = { updateSheet = false })
+
     when (route) {
         "workbench" -> DashboardScreen(vm, me, go)
         "schedule" -> ScheduleScreen(vm)
@@ -263,6 +352,16 @@ private fun ScreenHost(
         "admin-roles" -> RolesScreen(vm)
         "admin-invites" -> InvitesScreen(vm)
         "me" -> MeScreen(vm, me, onPrefs, go, onAccounts)
+        "settings" -> SettingsScreen(
+            vm = vm,
+            themeLabel = vm.ui.theme.ifBlank { "默认" },
+            onPrefs = onPrefs,
+            onNotify = { go("notify") },
+            onExport = { go("export") },
+            onAccounts = onAccounts,
+            onLogout = { vm.logout() },
+            onUpdate = { updateSheet = true },
+        )
         "notify" -> NotifyScreen(vm)
         else -> DashboardScreen(vm, me, go)
     }
@@ -357,7 +456,9 @@ private fun SidebarContent(
                 false,
                 trailing = if (accountCount > 1) "${accountCount - 1} 个可选" else null,
             ) { onAccounts() }
-            NavRow(NavItemDto(code = "prefs", label = "外观与偏好", icon = "palette"), false) { onPrefs() }
+            // 「设置」独立成页：外观 / 通知 / 权限 / 更新 / 数据 / 账号都收进去了，
+            // 「我的」只留个人资料，两个页面各管一件事
+            NavRow(NavItemDto(code = "settings", label = "设置", icon = "settings-2"), active == "settings") { onGo("settings") }
             NavRow(NavItemDto(code = "logout", label = "退出登录", icon = "log-out"), false) { onLogout() }
             Spacer(Modifier.height(10.dp))
         }
