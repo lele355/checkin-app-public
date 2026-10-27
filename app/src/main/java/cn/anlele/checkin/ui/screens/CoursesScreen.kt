@@ -205,13 +205,24 @@ private fun LazyColumnish(
                                 if (start.isBlank()) "先设学期起始日" else "${Dates.fmt(start, "MM-dd")}～${Dates.fmt(end, "MM-dd")}",
                                 fontSize = 11.sp, color = p.textWeak,
                             )
-                            Text(" · ", fontSize = 11.sp, color = p.textWeak)
-                            // 学期名可点：切换 / 新建 / 删除都在弹层里
-                            Text(
-                                (d?.semesterName?.ifBlank { null } ?: "选择学期") + " ›",
-                                fontSize = 11.sp, color = p.accentStrong,
-                                modifier = Modifier.clickable { onSemester() },
-                            )
+                            Spacer(Modifier.width(5.dp))
+                            // 学期做成「胶囊按钮」：以前这里是 11sp 裸文字 + clickable，
+                            // 点击区只有十几个像素高，手指根本点不准 —— 用户会以为「学期管理没做」。
+                            Row(
+                                Modifier
+                                    .clip(chipShape())
+                                    .background(p.accentSoft)
+                                    .clickable(onClick = onSemester)
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    d?.semesterName?.ifBlank { null } ?: "选择学期",
+                                    fontSize = 11.5.sp, color = p.accentStrong,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Text(" ›", fontSize = 11.5.sp, color = p.accentStrong)
+                            }
                         }
                     }
                     WeekArrow("›", "下一周") { onNextWeek() }

@@ -32,6 +32,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -960,21 +962,46 @@ private fun DashCustomSheet(
             )
             Spacer(Modifier.height(10.dp))
 
+            // ---------- 问候块：固定最高优先级，不参与排序 ----------
+            // 单独列一行、写明「不可移动」，也从下面三个区的列表里剔掉 ——
+            // 以前它混在「普通区」里跟别的卡一样能被拖动，用户会以为「问候块没固定住」。
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(chipShape())
+                    .background(p.accentSoft)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(AppIcons["pin"], null, Modifier.size(13.dp), tint = p.accentStrong)
+                Spacer(Modifier.width(7.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("问候块", fontSize = 12.5.sp, color = p.text, fontWeight = FontWeight.Medium)
+                    Text(
+                        if ("hello" in draft.hidden) "已隐藏（打开开关就回到最上面）" else "固定置顶 · 不可移动",
+                        fontSize = 10.5.sp, color = p.textWeak,
+                    )
+                }
+                SiteSwitch("hello" !in draft.hidden) { v -> draft = draft.setVisible("hello", v) }
+            }
+            Spacer(Modifier.height(8.dp))
+
             DashSection(
-                "置顶区", draft.pinned, names, draft,
+                "置顶区", draft.pinned.filter { it != "hello" }, names, draft,
                 onPin = { id -> draft = draft.togglePin(id) },
                 onVisible = { id, v -> draft = draft.setVisible(id, v) },
                 onMove = { id, d -> draft = draft.move(id, d) },
             )
             DashSection(
-                "普通区", draft.order, names, draft,
+                "普通区", draft.order.filter { it != "hello" }, names, draft,
                 onPin = { id -> draft = draft.togglePin(id) },
                 onVisible = { id, v -> draft = draft.setVisible(id, v) },
                 onMove = { id, d -> draft = draft.move(id, d) },
             )
             // 隐藏区不给排序按钮：看不见的卡片排位置没意义，也容易让人以为「挪出来就显示了」
+            // （问候块也不在这里出现，它的显隐在上面那个开关里）
             DashSection(
-                "已隐藏", draft.hidden, names, draft,
+                "已隐藏", draft.hidden.filter { it != "hello" }, names, draft,
                 onPin = { id -> draft = draft.togglePin(id) },
                 onVisible = { id, v -> draft = draft.setVisible(id, v) },
                 onMove = { _, _ -> },
@@ -1018,11 +1045,13 @@ private fun DashSection(
     }
     val density = LocalDensity.current
     val rowPx = with(density) { 54.dp.toPx() }
-    // 长按拖动：按住一行上下拖，跨过一行高就把它挪到相邻位置（与旁边的上/下箭头同一套 move）
+    // 长按拖动：被按住的那行**跟着手指走**（translationY），越过 0.6 行高才和邻居换位，
+    // 换完把偏移减回一行高 —— 这样视觉上是连续的，不会「拖一格就蹦到很远」。
     var dragId by remember { mutableStateOf<String?>(null) }
-    var dragAccum by remember { mutableStateOf(0f) }
+    var dragOffset by remember { mutableStateOf(0f) }
 
     ids.forEachIndexed { i, id ->
+        val dragging = dragId == id
         DashRow(
             name = names[id] ?: id,
             pinned = draft.isPinned(id),
@@ -1030,27 +1059,36 @@ private fun DashSection(
             isHidden = title == "已隐藏",
             canUp = i > 0,
             canDown = i < ids.size - 1,
-            dragging = dragId == id,
+            dragging = dragging,
             onPin = { onPin(id) },
             onVisible = { onVisible(id, it) },
             onUp = { onMove(id, -1) },
             onDown = { onMove(id, 1) },
-            modifier = Modifier
+            modifier = if (title == "已隐藏") Modifier else Modifier
+                // 被拖的那行抬到上层，否则会被后面的行盖住
+                .zIndex(if (dragging) 1f else 0f)
+                .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
                 .pointerInput(id) {
-                    if (title == "已隐藏") return@pointerInput   // 隐藏的卡排位置没意义
                     detectDragGesturesAfterLongPress(
-                        onDragStart = { dragId = id; dragAccum = 0f },
-                        onDragEnd = { dragId = null },
-                        onDragCancel = { dragId = null },
+                        onDragStart = {
+                            dragId = id
+                            dragOffset = 0f
+                        },
+                        onDragEnd = { dragId = null; dragOffset = 0f },
+                        onDragCancel = { dragId = null; dragOffset = 0f },
                         onDrag = { change, amount ->
                             change.consume()
-                            dragAccum += amount.y
-                            val steps = (dragAccum / rowPx).toInt()
-                            if (steps != 0) {
-                                repeat(kotlin.math.abs(steps)) {
-                                    onMove(id, if (steps > 0) 1 else -1)
+                            dragOffset += amount.y
+                            // 每次只换一格：换完立刻减去一行高，剩余位移继续累计
+                            val cur = ids.indexOf(id)
+                            if (cur >= 0) {
+                                if (dragOffset > rowPx * 0.6f && cur < ids.size - 1) {
+                                    onMove(id, 1)
+                                    dragOffset -= rowPx
+                                } else if (dragOffset < -rowPx * 0.6f && cur > 0) {
+                                    onMove(id, -1)
+                                    dragOffset += rowPx
                                 }
-                                dragAccum -= steps * rowPx
                             }
                         },
                     )
@@ -1075,13 +1113,22 @@ private fun DashRow(
     onDown: () -> Unit,
 ) {
     val p = palette
+    // 拖动时轻微放大 + 投影：手感上「这块被我拿起来了」
+    val lift by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (dragging) 1.03f else 1f,
+        animationSpec = androidx.compose.animation.core.tween(140),
+        label = "row-lift",
+    )
     Row(
         modifier
             .fillMaxWidth()
+            .graphicsLayer { scaleX = lift; scaleY = lift }
             .padding(bottom = 6.dp)
             .clip(chipShape())
-            // 拖着走的那行抬起来一点：换成强调色底 + 阴影，能看见「我现在抓的是哪一行」
             .background(if (dragging) p.accentSoft else p.cardSoft)
+            .then(
+                if (dragging) Modifier.shadow(6.dp, chipShape()) else Modifier
+            )
             .padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
