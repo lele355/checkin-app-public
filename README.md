@@ -11,11 +11,14 @@ Kotlin + Jetpack Compose 原生 App，通过 HTTP 连一个自建服务端取数
 
 ## 功能
 
-- 工作台：问候卡 + 今日打卡/课程/日程/备忘/纪念日/记账等卡片
+- 工作台：问候卡 + 今日打卡/课程/日程/备忘/纪念日/记账等卡片，卡片显隐与排序可自己拖
 - 日程：列表分组（今天 / 明天 / 一周内 / 更远 / 已过）+ 月历双视图
-- 备忘、习惯打卡、课程表（周次 + 图例 + 彩色块）、记账（三栏汇总 + 分类占比）、统计（热力图 + 排行 + 月柱）
-- 纪念日、留言板、情侣空间、周期助手、提醒中心、AI 助手、邮件、我的
-- **本地通知**：日程到点、每日早报、打卡提醒、纪念日 —— 全部用 `AlarmManager` 在本机定时，
+- 备忘、习惯打卡、课程表（多学期 + 周次 + 图例 + 彩色块）、记账（三栏汇总 + 分类占比 + **自定义分类**）、
+  统计（热力图 + 排行 + 月柱）
+- 纪念日、留言板、情侣空间、周期助手、提醒中心、AI 助手、邮件、数据导出
+- 「我的」管资料与改密；「设置」是独立页：外观（主题 / 底色 / 强调色）、通知、权限体检、
+  检查更新、数据、账号、关于
+- **本地通知**：日程到点、每日早报、打卡提醒、纪念日、经期预测 —— 全部用 `AlarmManager` 在本机定时，
   不接任何第三方推送 SDK（见下方[通知](#通知)）
 
 ## 技术栈
@@ -108,11 +111,11 @@ Compose BOM 必须是 `2025.08.00`。写成更新的版本会要求 compileSdk 3
 
 | 路径 | 作用 |
 |---|---|
-| `ui/screens/` | 每个功能一个 Screen（工作台 / 日程 / 课表 / 记账 / AI …） |
-| `ui/components/` | 站点同款组件：`SiteKit`（卡片/页头/列表行）、`DatePicker`（日期/时间/数字/周次）、`EditSheet`（底部弹层表单） |
-| `ui/theme/` | 5 套主题的 `Palette`，字段名与网页 `tokens.css` 一一对应 |
-| `ui/shell/` | `MainShell`（侧栏 + 顶栏 + 路由）、`PrefsSheet`（外观设置） |
-| `data/` | `Api`（HTTP + 超时）、`Repo`（业务封装）、`Session`（Token）、`Models`（DTO） |
+| `ui/screens/` | 每个功能一个 Screen（工作台 / 日程 / 课表 / 记账 / AI / 设置 …） |
+| `ui/components/` | 站点同款组件：`SiteKit`（卡片/页头/列表行）、`DatePicker`（日期/时间/数字/周次）、`TimePicker`（`PickerSheetShell` 弹层）、`EditSheet`（表单）、`SemesterSheet`、`UpdateSheet`、`ChangelogSheet` |
+| `ui/theme/` | 5 套主题的配色与令牌映射，字段名与网页 `tokens.css` 一一对应 |
+| `ui/shell/` | `MainShell`（侧栏 + 顶栏 + 路由）、`PrefsSheet`（外观快选弹层） |
+| `data/` | `Api`（HTTP + 超时）、`Repo`（业务封装）、`Session`（Token）、`Models`（DTO）、`Beian`（备案兜底文案） |
 | `push/` | 本地通知：`AlarmScheduler` / `NotifyPlan` / `PermCheck` |
 | `util/` | `Dates`（日期计算）、`Weeks`（课程周次解析） |
 
@@ -124,6 +127,13 @@ Compose BOM 必须是 `2025.08.00`。写成更新的版本会要求 compileSdk 3
 3. 颜色与圆角只从 `LocalPalette` 取，不许写死
 4. Material3 的 BOM 只能用 `2025.08.00`（更新版要求 compileSdk 37 + AGP 9.1，当前编不过）
 5. 删除类操作不要弹 `AlertDialog` 二次确认，用 `SheetDelete`（弹层内一次点击 + 服务端确认语义）
+6. **`ModalBottomSheet` 不许嵌套**（有的 ROM 第二层直接不显示）。需要二级选择器就用
+   `PickerSheetShell`（`Dialog` 实现）；它的 content 里也**不能再套 `verticalScroll`**，会崩
+7. 弹层的「确定 / 确认」按钮**自己负责关闭**（`onPick()` 后自己 `onDismiss()`），
+   不要把关闭责任甩给调用方 —— 漏写一句就是「点确定没反应」
+8. 列表要支持拖动排序时，三件套缺一不可：`key(id)` + `rememberUpdatedState(list)` +
+   `onSizeChanged` 实测行高。少任意一个的表现都是「只能拖一格」
+9. 图标别用 `painterResource` 直接指向 adaptive-icon，取不到；用 `drawable-nodpi/app_logo.png`
 
 ## 发版
 
