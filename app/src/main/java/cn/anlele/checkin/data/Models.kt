@@ -781,3 +781,101 @@ data class ErrorDto(val ok: Boolean = false, val error: String = "")
 
 @Serializable
 data class DateOnlyDto(val today: String = "", @SerialName("from") val fromDate: String = "")
+
+// ==================== 小游戏（五子棋） ====================
+
+/** 一手棋：x 列 / y 行（从 0 开始）/ s 落子方（1 黑、2 白） */
+@Serializable
+data class GameStoneDto(val x: Int = 0, val y: Int = 0, val s: Int = 0)
+
+/**
+ * 我的默认对局设置 —— 与 /api/v1/games/settings 一一对应。
+ *
+ * 两类字段要分清：
+ *  · size / forbidden / moveTimeoutSec / totalTimeoutSec —— 影响对局，**建房时快照进房间**
+ *  · tapConfirm / showCoord / lastMark / vibrate —— 只影响自己画面，不上服务端
+ */
+@Serializable
+data class GameSettingsDto(
+    val size: Int = 15,
+    val forbidden: Boolean = false,
+    val tapConfirm: Boolean = false,
+    val showCoord: Boolean = true,
+    val lastMark: Boolean = true,
+    val vibrate: Boolean = true,
+    val moveTimeoutSec: Int = 0,
+    val totalTimeoutSec: Int = 0,
+)
+
+/** 一局的全部状态 —— 与 /api/v1/games/{id} 的 data 一一对应，也用于大厅行 */
+@Serializable
+data class GameRoomDto(
+    val id: Int = 0,
+    val code: String = "",
+    val gameKey: String = "gomoku",
+    val status: String = "",
+    val hostSide: Int = 1,
+    val hostId: Int = 0,
+    val hostName: String = "",
+    val guestId: Int = 0,
+    val guestName: String = "",
+    val turn: Int = 1,
+    val winner: Int = 0,
+    val resultReason: String = "",
+    val revision: Int = 0,
+    val size: Int = 15,
+    /** 建房时定下的规则，双方共享（中途改设置不影响这一局） */
+    val forbidden: Boolean = false,
+    val moveTimeoutSec: Int = 0,
+    val totalTimeoutSec: Int = 0,
+    /** 剩余毫秒；null = 这一项不限 */
+    val moveRemainMs: Long? = null,
+    val myRemainMs: Long? = null,
+    val oppRemainMs: Long? = null,
+    val hostUsedMs: Long = 0,
+    val guestUsedMs: Long = 0,
+    val moves: List<GameStoneDto> = emptyList(),
+    val moveCount: Int = 0,
+    val lastMove: GameStoneDto? = null,
+    /** 我执哪一方：0 = 旁观 */
+    val mySide: Int = 0,
+    val myName: String = "",
+    val opponentName: String = "",
+    val opponentOnline: Boolean = false,
+    val myTurn: Boolean = false,
+    val canJoin: Boolean = false,
+    val createdAt: String = "",
+    val updatedAt: String = "",
+)
+
+@Serializable
+data class GameLobbyItemDto(
+    val id: Int = 0,
+    val code: String = "",
+    val status: String = "",
+    val hostId: Int = 0,
+    val hostName: String = "",
+    val guestId: Int = 0,
+    val guestName: String = "",
+    val hostSide: Int = 1,
+    val size: Int = 15,
+    val forbidden: Boolean = false,
+    val moveCount: Int = 0,
+    val winner: Int = 0,
+    val mySide: Int = 0,
+    val mine: Boolean = false,
+    val myTurn: Boolean = false,
+    val opponentOnline: Boolean = false,
+    val updatedAt: String = "",
+)
+
+@Serializable
+data class GameLobbyDto(
+    val items: List<GameLobbyItemDto> = emptyList(),
+    val size: Int = 15,
+    /** 服务端顺手带回来的我的设置，省一次往返 */
+    val settings: GameSettingsDto = GameSettingsDto(),
+)
+
+@Serializable
+data class GameCreateDto(val id: Int = 0, val code: String = "", val hostSide: Int = 1)

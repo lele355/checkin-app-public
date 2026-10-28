@@ -66,6 +66,7 @@ import cn.anlele.checkin.ui.screens.DashboardScreen
 import cn.anlele.checkin.ui.screens.EmailScreen
 import cn.anlele.checkin.ui.screens.ExpensesScreen
 import cn.anlele.checkin.ui.screens.ExportScreen
+import cn.anlele.checkin.ui.screens.GamesScreen
 import cn.anlele.checkin.ui.screens.HabitsScreen
 import cn.anlele.checkin.ui.screens.InvitesScreen
 import cn.anlele.checkin.ui.components.ChangelogSheet
@@ -351,6 +352,7 @@ private fun ScreenHost(
         "stats" -> StatsScreen(vm)
         "anniversary" -> AnniversaryScreen(vm)
         "board" -> BoardScreen(vm)
+        "games" -> GamesScreen(vm)
         "couples" -> CoupleScreen(vm)
         "period" -> PeriodScreen(vm)
         "reminders" -> RemindersScreen(vm, go)

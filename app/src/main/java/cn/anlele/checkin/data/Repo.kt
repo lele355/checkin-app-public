@@ -290,6 +290,59 @@ object Repo {
     suspend fun register(req: RegisterReq): IdDto =
         Api.post("/auth/register", enc(req, RegisterReq.serializer()))
 
+    // ---------- 小游戏（五子棋） ----------
+    /**
+     * 建房。side = 我执哪一方（1 黑先 / 2 白后）；
+     * 后面四个是「这一局」的覆盖值，null = 用我账号里的默认设置。
+     */
+    @Serializable data class GameCreateReq(
+        val side: Int = 1,
+        val size: Int? = null,
+        val forbidden: Boolean? = null,
+        val moveTimeoutSec: Int? = null,
+        val totalTimeoutSec: Int? = null,
+    )
+    @Serializable data class GameJoinReq(val code: String)
+    @Serializable data class GameMoveReq(val x: Int, val y: Int)
+
+    // ---------------- 我的默认对局设置 ----------------
+    suspend fun gameSettings(): GameSettingsDto = Api.get("/games/settings", cache = false)
+
+    suspend fun saveGameSettings(s: GameSettingsDto): GameSettingsDto =
+        Api.put("/games/settings", enc(s, GameSettingsDto.serializer()))
+
+    /** 大厅：等待中的房间 + 我参与的对局。**不吃离线快照** —— 过期局面比空列表更误导 */
+    suspend fun games(): GameLobbyDto = Api.get("/games", cache = false)
+
+    suspend fun createGame(
+        side: Int,
+        size: Int? = null,
+        forbidden: Boolean? = null,
+        moveTimeoutSec: Int? = null,
+        totalTimeoutSec: Int? = null,
+    ): GameCreateDto = Api.post(
+        "/games",
+        enc(
+            GameCreateReq(side, size, forbidden, moveTimeoutSec, totalTimeoutSec),
+            GameCreateReq.serializer(),
+        ),
+    )
+
+    suspend fun joinGameByCode(code: String): IdDto =
+        Api.post("/games/join", enc(GameJoinReq(code), GameJoinReq.serializer()))
+
+    suspend fun joinGame(id: Int): IdDto = Api.post("/games/$id/join")
+
+    /** 轮询用：1.2 秒一次，绝不能走快照（会每轮写一次磁盘） */
+    suspend fun game(id: Int): GameRoomDto = Api.get("/games/$id", cache = false)
+
+    suspend fun gameMove(id: Int, x: Int, y: Int): GameRoomDto =
+        Api.post("/games/$id/move", enc(GameMoveReq(x, y), GameMoveReq.serializer()))
+
+    suspend fun gameResign(id: Int): GameRoomDto = Api.post("/games/$id/resign")
+    suspend fun gameRematch(id: Int): GameRoomDto = Api.post("/games/$id/rematch")
+    suspend fun gameLeave(id: Int) { Api.exec("POST", "/games/$id/leave") }
+
     suspend fun version(): VersionDto = Api.get("/app/version")
     suspend fun changelog(): ChangelogDto = Api.get("/app/changelog")
 }
