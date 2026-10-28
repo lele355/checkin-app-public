@@ -384,6 +384,8 @@ data class MonthRowDto(
 data class ExpensesPageDto(
     val month: String = "",
     val items: List<ExpenseDto> = emptyList(),
+    /** 记账分类（用户自定义；服务端没配过就是内置 7 个）。空 = 老版本服务端，App 走本地兜底 */
+    val categories: List<String> = emptyList(),
     val summary: ExpenseSummaryDto = ExpenseSummaryDto(),
     val months: List<MonthRowDto> = emptyList(),
 )

@@ -27,9 +27,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.shadow
@@ -38,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1044,56 +1047,85 @@ private fun DashSection(
         )
     }
     val density = LocalDensity.current
-    val rowPx = with(density) { 54.dp.toPx() }
-    // 长按拖动：被按住的那行**跟着手指走**（translationY），越过 0.6 行高才和邻居换位，
+    // 行高必须**实测**：DashRow 的真实高度是「30dp 按钮 + 上下 4dp + 底部 6dp 间隔」= 44dp，
+    // 以前这里写死 54dp，换位后 `dragOffset -= rowPx` 每次多减 10dp，拖第二格时手指还没走
+    // 到一半阈值就已经换了两次位（或者反过来永远换不动）。实测值同时兼容各主题字号。
+    // 用普通 HashMap 而不是 mutableStateMapOf：这个数只在手势协程里读，不需要触发重组。
+    val rowHeights = remember { HashMap<String, Float>() }
+    val fallbackRowPx = with(density) { 44.dp.toPx() }
+
+    // 长按拖动：被按住的那行**跟着手指走**（translationY），越过 0.55 行高才和邻居换位，
     // 换完把偏移减回一行高 —— 这样视觉上是连续的，不会「拖一格就蹦到很远」。
+    //
+    // 【2026-10-28 修：以前只能拖一格】
+    // 三个原因叠在一起，缺一不可：
+    // 1. 下面没有 `key(id)` 包裹。换位后同一个组合位置上的 id 变了，
+    //    `pointerInput(id)` 的 key 跟着变 → 手势协程被取消 → onDragCancel 把 dragId 清空，
+    //    手指还在屏幕上但已经不跟手了。这是「只能拖一格」的直接原因。
+    // 2. 手势闭包里的 `ids` 是首次组合时的快照（pointerInput 不重启就不会更新），
+    //    用旧下标算位置，换一次位之后就找不准「我排第几」。改用 rememberUpdatedState。
+    // 3. 行高写死 54dp（实际 44dp），换位步长和视觉位移对不上。改成实测值。
     var dragId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(0f) }
+    val idsState = rememberUpdatedState(ids)
 
     ids.forEachIndexed { i, id ->
         val dragging = dragId == id
-        DashRow(
-            name = names[id] ?: id,
-            pinned = draft.isPinned(id),
-            visible = !draft.isHidden(id),
-            isHidden = title == "已隐藏",
-            canUp = i > 0,
-            canDown = i < ids.size - 1,
-            dragging = dragging,
-            onPin = { onPin(id) },
-            onVisible = { onVisible(id, it) },
-            onUp = { onMove(id, -1) },
-            onDown = { onMove(id, 1) },
-            modifier = if (title == "已隐藏") Modifier else Modifier
-                // 被拖的那行抬到上层，否则会被后面的行盖住
-                .zIndex(if (dragging) 1f else 0f)
-                .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
-                .pointerInput(id) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = {
-                            dragId = id
-                            dragOffset = 0f
-                        },
-                        onDragEnd = { dragId = null; dragOffset = 0f },
-                        onDragCancel = { dragId = null; dragOffset = 0f },
-                        onDrag = { change, amount ->
-                            change.consume()
-                            dragOffset += amount.y
-                            // 每次只换一格：换完立刻减去一行高，剩余位移继续累计
-                            val cur = ids.indexOf(id)
-                            if (cur >= 0) {
-                                if (dragOffset > rowPx * 0.6f && cur < ids.size - 1) {
-                                    onMove(id, 1)
-                                    dragOffset -= rowPx
-                                } else if (dragOffset < -rowPx * 0.6f && cur > 0) {
-                                    onMove(id, -1)
-                                    dragOffset += rowPx
+        // key(id)：让每一行的组合身份跟着「卡片 id」走，而不是跟着「第几行」走。
+        // 少了它，上面三条里第 1 条就必然发生。
+        key(id) {
+            DashRow(
+                name = names[id] ?: id,
+                pinned = draft.isPinned(id),
+                visible = !draft.isHidden(id),
+                isHidden = title == "已隐藏",
+                canUp = i > 0,
+                canDown = i < ids.size - 1,
+                dragging = dragging,
+                onPin = { onPin(id) },
+                onVisible = { onVisible(id, it) },
+                onUp = { onMove(id, -1) },
+                onDown = { onMove(id, 1) },
+                modifier = if (title == "已隐藏") Modifier else Modifier
+                    // 被拖的那行抬到上层，否则会被后面的行盖住
+                    .zIndex(if (dragging) 1f else 0f)
+                    .onSizeChanged { rowHeights[id] = it.height.toFloat() }
+                    .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
+                    .pointerInput(id) {
+                        // 游标跟着本行自己的逻辑位置走：onMove 之后立刻 ±1，
+                        // 不等重组把新 ids 传进来（同一帧内可能连着来好几个 move 事件）。
+                        var cur = -1
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                dragId = id
+                                dragOffset = 0f
+                                cur = idsState.value.indexOf(id)
+                            },
+                            onDragEnd = { dragId = null; dragOffset = 0f; cur = -1 },
+                            onDragCancel = { dragId = null; dragOffset = 0f; cur = -1 },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                dragOffset += amount.y
+                                val last = idsState.value.size - 1
+                                if (cur in 0..last) {
+                                    val step = (rowHeights[id] ?: fallbackRowPx).coerceAtLeast(1f)
+                                    // 每次只换一格：换完立刻把偏移减回一行高，剩余位移继续累计，
+                                    // 所以一直拖着不放可以连着跨过好几行。
+                                    if (dragOffset > step * 0.55f && cur < last) {
+                                        onMove(id, 1)
+                                        cur += 1
+                                        dragOffset -= step
+                                    } else if (dragOffset < -step * 0.55f && cur > 0) {
+                                        onMove(id, -1)
+                                        cur -= 1
+                                        dragOffset += step
+                                    }
                                 }
-                            }
-                        },
-                    )
-                },
-        )
+                            },
+                        )
+                    },
+            )
+        }
     }
 }
 

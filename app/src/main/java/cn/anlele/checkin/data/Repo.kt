@@ -156,6 +156,19 @@ object Repo {
     suspend fun updateExpense(id: Int, req: ExpenseReq): IdDto = Api.put("/expenses/$id", enc(req, ExpenseReq.serializer()))
     suspend fun deleteExpense(id: Int) { Api.exec("DELETE", "/expenses/$id") }
 
+    /** 记账自定义分类：提交的是**全量列表**（服务端会去重 / 限长 / 限量后回存） */
+    @Serializable data class ExpenseCategoriesReq(val categories: List<String> = emptyList())
+    @Serializable data class ExpenseCategoriesDto(
+        val categories: List<String> = emptyList(),
+        val defaults: List<String> = emptyList(),
+        val maxCount: Int = 24,
+        val maxLen: Int = 8,
+    )
+    suspend fun expenseCategories(): ExpenseCategoriesDto = Api.get("/expenses/categories")
+    suspend fun saveExpenseCategories(list: List<String>): ExpenseCategoriesDto =
+        Api.put("/expenses/categories",
+            enc(ExpenseCategoriesReq(list), ExpenseCategoriesReq.serializer()))
+
     // ---------- 课程表 ----------
     suspend fun courses(): CoursesPageDto = Api.get("/courses")
     suspend fun createCourse(req: CourseReq): IdDto = Api.post("/courses", enc(req, CourseReq.serializer()))

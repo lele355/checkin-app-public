@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,6 +28,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -47,19 +51,30 @@ import cn.anlele.checkin.ui.components.HeadButton
 import cn.anlele.checkin.ui.components.IconBtn
 import cn.anlele.checkin.ui.components.NumIn
 import cn.anlele.checkin.ui.components.PageHeadCard
+import cn.anlele.checkin.ui.components.PickerSheetShell
 import cn.anlele.checkin.ui.components.PrimaryButton
+import cn.anlele.checkin.ui.components.SecondaryButton
 import cn.anlele.checkin.ui.components.SheetDelete
 import cn.anlele.checkin.ui.components.SiteEmpty
 import cn.anlele.checkin.ui.components.SiteRow
 import cn.anlele.checkin.ui.components.StaggerIn
 import cn.anlele.checkin.ui.components.TinyAction
 import cn.anlele.checkin.ui.components.ViewSwitch
+import cn.anlele.checkin.ui.icons.AppIcons
 import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.palette
 import cn.anlele.checkin.util.Dates
 import kotlinx.coroutines.launch
 
-private val CATEGORIES = listOf("餐饮", "交通", "学习", "娱乐", "日用", "医疗", "其他")
+/**
+ * 服务端不返回分类时的兜底（老版本后端 / 离线快照）。
+ * 正常情况下这份列表来自 `User.ExpenseCategories`，用户可以在「管理分类」里改成自己的。
+ */
+private val DEFAULT_CATEGORIES = listOf("餐饮", "交通", "学习", "娱乐", "日用", "医疗", "其他")
+
+/** 与后端 ExpenseCategoryCatalog 保持一致：最多 24 个、单个 8 字 */
+private const val MAX_CATEGORIES = 24
+private const val MAX_CATEGORY_LEN = 8
 
 /** 记账里的红绿：支出红、收入绿（与网页一致，别套股票那套涨红跌绿） */
 private val OUT_RED = Color(0xFFC0392B)
@@ -80,11 +95,15 @@ fun ExpensesScreen(vm: AppVm) {
     var loading by remember { mutableStateOf(true) }
     var editorOpen by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ExpenseDto?>(null) }
+    // 分类跟着服务端走：换设备、换网页端都一致。加载失败时保留当前值，不会把选择器清空。
+    var categories by remember { mutableStateOf(DEFAULT_CATEGORIES) }
 
     suspend fun load() {
         loading = true
         try {
-            data = Repo.expenses(ym)
+            val r = Repo.expenses(ym)
+            data = r
+            if (r.categories.isNotEmpty()) categories = r.categories
         } catch (e: Exception) {
             vm.toast(e.message ?: "加载失败")
         } finally {
@@ -257,10 +276,16 @@ fun ExpensesScreen(vm: AppVm) {
     }
 
     if (editorOpen) {
-        ExpenseEditor(vm, editing, onClose = { editorOpen = false }, onSaved = {
-            editorOpen = false
-            scope.launch { load() }
-        })
+        ExpenseEditor(
+            vm, editing,
+            categories = categories,
+            onCategoriesChange = { categories = it },
+            onClose = { editorOpen = false },
+            onSaved = {
+                editorOpen = false
+                scope.launch { load() }
+            },
+        )
     }
 }
 
@@ -277,15 +302,23 @@ private fun SumTile(label: String, value: Double, color: Color, modifier: Modifi
 }
 
 @Composable
-private fun ExpenseEditor(vm: AppVm, initial: ExpenseDto?, onClose: () -> Unit, onSaved: () -> Unit) {
+private fun ExpenseEditor(
+    vm: AppVm,
+    initial: ExpenseDto?,
+    categories: List<String>,
+    onCategoriesChange: (List<String>) -> Unit,
+    onClose: () -> Unit,
+    onSaved: () -> Unit,
+) {
     val p = palette
     val scope = rememberCoroutineScope()
     var amount by remember { mutableStateOf(initial?.let { Dates.money(it.amount) } ?: "") }
     var type by remember { mutableStateOf(initial?.type ?: "out") }
-    var category by remember { mutableStateOf(initial?.category ?: "餐饮") }
+    var category by remember { mutableStateOf(initial?.category ?: categories.firstOrNull() ?: "其他") }
     var date by remember { mutableStateOf(initial?.occurDate ?: Dates.today()) }
     var note by remember { mutableStateOf(initial?.note ?: "") }
     var saving by remember { mutableStateOf(false) }
+    var manageOpen by remember { mutableStateOf(false) }
 
     EditSheet(
         title = if (initial == null) "记一笔" else "改这一笔",
@@ -328,18 +361,170 @@ private fun ExpenseEditor(vm: AppVm, initial: ExpenseDto?, onClose: () -> Unit, 
             keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
         )
         Spacer(Modifier.height(14.dp))
-        Text("分类", fontSize = 12.5.sp, color = p.textSub)
-        Spacer(Modifier.height(8.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            CATEGORIES.chunked(4).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    row.forEach { c -> AppChip(c, selected = c == category) { category = c } }
-                }
-            }
+        // 分类标题行带「管理分类」入口：加分类/删分类是低频动作，
+        // 但必须就在选择的地方，不能让用户去设置页里翻。
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("分类", fontSize = 12.5.sp, color = p.textSub, modifier = Modifier.weight(1f))
+            TinyAction("管理分类", "settings-2") { manageOpen = true }
         }
+        Spacer(Modifier.height(8.dp))
+        if (manageOpen) {
+            CategoryManageSheet(
+                initial = categories,
+                onDismiss = { manageOpen = false },
+                onSaved = { list ->
+                    manageOpen = false
+                    onCategoriesChange(list)
+                    // 当前选中的分类如果被删掉了，落到列表第一个，别让 chip 全部不高亮
+                    if (category !in list) category = list.firstOrNull() ?: "其他"
+                },
+            )
+        }
+        ExpenseCategoryChips(
+            categories = categories,
+            selected = category,
+            onSelect = { category = it },
+        )
         Spacer(Modifier.height(14.dp))
         DateField("日期", date, { date = it })
         Spacer(Modifier.height(12.dp))
         AppField("备注", note, { note = it }, placeholder = "买了什么（可不填）")
+    }
+}
+
+/**
+ * 分类 chip 区。用 FlowRow 自动换行 —— 分类是用户自定义的，数量不定，
+ * 以前 `chunked(4)` 固定四列，多出来的分类会被挤成一行超宽或者行数爆掉。
+ *
+ * 另外：编辑一笔老账时，它的分类可能已经从「分类管理」里被删掉了。
+ * 这种分类也照显示（排在最后）—— 否则打开编辑页看不到「这一笔现在是什么分类」，
+ * 顺手保存就等于把它改成了别的分类。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ExpenseCategoryChips(
+    categories: List<String>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    val shown = if (selected.isNotBlank() && selected !in categories) categories + selected else categories
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        shown.forEach { c -> AppChip(c, selected = c == selected) { onSelect(c) } }
+    }
+}
+
+/**
+ * 分类管理弹层（自定义分类的增删）。
+ *
+ * 形态用 [PickerSheetShell]（Dialog）而不是 ModalBottomSheet：它是在 EditSheet
+ * 上面弹出来的，两个 ModalBottomSheet 相叠在各家 ROM 上会互相压住。
+ *
+ * 【草稿语义】改动只落在本地 [draft]，点「保存」才 PUT 到服务端；
+ * 点空白/返回 = 丢弃。所以删分类不做二次确认 —— 有「恢复默认」兜底，
+ * 而且删掉的分类不会影响已有账目（它们仍挂在原来的名字下）。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CategoryManageSheet(
+    initial: List<String>,
+    onDismiss: () -> Unit,
+    onSaved: (List<String>) -> Unit,
+) {
+    val p = palette
+    val scope = rememberCoroutineScope()
+    var draft by remember { mutableStateOf(initial) }
+    var input by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun add() {
+        val v = input.trim()
+        when {
+            v.isEmpty() -> return
+            draft.size >= MAX_CATEGORIES -> { error = "最多 $MAX_CATEGORIES 个分类"; return }
+            draft.any { it.equals(v, ignoreCase = true) } -> { error = "「$v」已经在列表里了"; return }
+        }
+        draft = draft + v
+        input = ""
+        error = null
+    }
+
+    PickerSheetShell(onDismiss = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+            Text("管理分类", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = p.text)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "点一个分类就把它删掉（不影响已有账目，那些账还挂在原来的名字下）。保存后网页端也会跟着变。",
+                fontSize = 12.sp, color = p.textWeak, lineHeight = 18.sp,
+            )
+            Spacer(Modifier.height(12.dp))
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                draft.forEach { c ->
+                    Row(
+                        Modifier
+                            .clip(chipShape())
+                            .background(p.cardSoft)
+                            .clickable {
+                                if (draft.size <= 1) error = "至少留一个分类，不然记一笔时没得选"
+                                else { draft = draft - c; error = null }
+                            }
+                            .padding(horizontal = 11.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(c, fontSize = 12.sp, color = p.textSub, maxLines = 1)
+                        Spacer(Modifier.width(5.dp))
+                        Icon(AppIcons["x"], "删除", Modifier.size(10.dp), tint = p.textWeak)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppField(
+                    label = "",
+                    value = input,
+                    onValueChange = { input = it.take(MAX_CATEGORY_LEN) },
+                    modifier = Modifier.weight(1f),
+                    placeholder = "新分类，如：宠物",
+                )
+                PrimaryButton("添加", icon = "plus", enabled = input.isNotBlank()) { add() }
+            }
+
+            if (error != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(error!!, fontSize = 12.sp, color = Color(0xFFD93025))
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SecondaryButton("恢复默认", Modifier.weight(1f)) {
+                    draft = DEFAULT_CATEGORIES
+                    error = null
+                }
+                PrimaryButton("保存", Modifier.weight(1f), loading = saving) {
+                    saving = true
+                    scope.launch {
+                        try {
+                            val r = Repo.saveExpenseCategories(draft)
+                            onSaved(r.categories.ifEmpty { draft })
+                        } catch (e: ApiException) {
+                            error = e.message
+                            saving = false
+                        } catch (e: Exception) {
+                            error = "保存失败，检查一下网络"
+                            saving = false
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
     }
 }

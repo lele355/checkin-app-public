@@ -92,7 +92,15 @@ fun MinuteOfDaySheet(
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SecondaryButton("取消", Modifier.weight(1f)) { onDismiss() }
-                PrimaryButton("确定", Modifier.weight(1f)) { onPick(hour * 60 + minute) }
+                // 确定 = 交值 + 关闭，两步都在组件内部做完。
+                // 【2026-10-28 修】以前这里只调 onPick，关闭完全交给调用方；TimeField（日程编辑
+                // 的开始/结束时间就是它）只写了 onChange、忘了置 open=false，于是「选好点确定
+                // 没反应」。这类「弹层自己该不该关」的责任不该外泄 —— 与 DatePickerSheet /
+                // NumberSheet / WeekPickerSheet 统一成「组件自关」，调用方少写一行也不会坏。
+                PrimaryButton("确定", Modifier.weight(1f)) {
+                    onPick(hour * 60 + minute)
+                    onDismiss()
+                }
             }
             Spacer(Modifier.height(20.dp))
         }
