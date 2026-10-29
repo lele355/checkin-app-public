@@ -4,6 +4,7 @@ import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,10 +52,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.anlele.checkin.AppVm
 import cn.anlele.checkin.data.ApiException
+import cn.anlele.checkin.data.GameCatalogDto
+import cn.anlele.checkin.data.GameDisplayDto
 import cn.anlele.checkin.data.GameLobbyDto
 import cn.anlele.checkin.data.GameLobbyItemDto
 import cn.anlele.checkin.data.GameRoomDto
-import cn.anlele.checkin.data.GameSettingsDto
+import cn.anlele.checkin.data.GameRuleDefaultsDto
 import cn.anlele.checkin.data.Repo
 import cn.anlele.checkin.ui.components.AppCard
 import cn.anlele.checkin.ui.components.AppChip
@@ -66,6 +70,8 @@ import cn.anlele.checkin.ui.components.PrimaryButton
 import cn.anlele.checkin.ui.components.SecondaryButton
 import cn.anlele.checkin.ui.components.SectionTitle
 import cn.anlele.checkin.ui.components.SiteSwitch
+import cn.anlele.checkin.ui.icons.AppIcons
+import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.palette
 import cn.anlele.checkin.util.Dates
 import kotlinx.coroutines.delay
@@ -99,15 +105,23 @@ private val TOTAL_TIMEOUTS = listOf(0, 300, 600, 900, 1800)
 @Composable
 fun GamesScreen(vm: AppVm) {
     val scope = rememberCoroutineScope()
+
+    // 两级入口：gameKey == null 停在「游戏列表 + 游戏总设置」，
+    // 选了某个游戏才进它的大厅 → 对局。加第二种游戏时这层骨架不用动。
+    var catalog by remember { mutableStateOf(GameCatalogDto()) }
+    var gameKey by remember { mutableStateOf<String?>(null) }
+
     var lobby by remember { mutableStateOf(GameLobbyDto()) }
-    var settings by remember { mutableStateOf(GameSettingsDto()) }
+    var display by remember { mutableStateOf(GameDisplayDto()) }
+    var rules by remember { mutableStateOf(GameRuleDefaultsDto()) }
     var loading by remember { mutableStateOf(true) }
     var code by remember { mutableStateOf("") }
     var room by remember { mutableStateOf<GameRoomDto?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirmResign by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
-    var settingsOpen by remember { mutableStateOf(false) }
+    var displayOpen by remember { mutableStateOf(false) }
+    var rulesOpen by remember { mutableStateOf(false) }
 
     // 大厅里「这一局」的规则：默认跟账号设置走，建房前可以临时改（只影响这一盘）
     var newSize by remember { mutableStateOf(15) }
@@ -115,15 +129,17 @@ fun GamesScreen(vm: AppVm) {
 
     // 设置对象变了（首次加载完 / 刚保存完）就把大厅选择重置回账号默认。
     // 用 data class 当 key：值没变就不会重启，用户在楼下挑好的盘面不会被无故冲掉。
-    LaunchedEffect(settings) {
-        newSize = settings.size
-        newForbidden = settings.forbidden
+    LaunchedEffect(rules) {
+        newSize = rules.size
+        newForbidden = rules.forbidden
     }
 
     suspend fun refreshLobby() {
+        val key = gameKey ?: return
         try {
-            lobby = Repo.games()
-            settings = lobby.settings      // 服务端顺手带回来的我的设置，省一次往返
+            lobby = Repo.gameLobby(key)
+            display = lobby.display      // 服务端顺手带回来的我的设置，省一次往返
+            rules = lobby.rules
         } catch (e: Exception) {
             vm.toast(e.message ?: "加载失败")
         } finally {
@@ -131,7 +147,25 @@ fun GamesScreen(vm: AppVm) {
         }
     }
 
-    LaunchedEffect(Unit) { refreshLobby() }
+    LaunchedEffect(Unit) {
+        catalog = try {
+            Repo.gameCatalog()
+        } catch (e: Exception) {
+            vm.toast(e.message ?: "加载失败")
+            GameCatalogDto()
+        }
+    }
+
+    // 进到某个游戏才拉大厅；切游戏时把上一个游戏的房间状态清掉
+    LaunchedEffect(gameKey) {
+        if (gameKey == null) {
+            room = null
+            return@LaunchedEffect
+        }
+        loading = true
+        room = null
+        refreshLobby()
+    }
 
     // 对局轮询：只有进房间后才跑；离开房间（room = null）就退出循环
     LaunchedEffect(room?.id) {
@@ -139,7 +173,7 @@ fun GamesScreen(vm: AppVm) {
             val cur = room ?: break
             delay(if (cur.status == "finished") 3000 else 1200)
             val latest = try {
-                Repo.game(cur.id)
+                Repo.game(cur.id, gameKey ?: "gomoku")
             } catch (_: Exception) {
                 continue          // 断网就下一轮再试，别把界面打回大厅
             }
@@ -155,8 +189,9 @@ fun GamesScreen(vm: AppVm) {
             try {
                 // 只覆盖盘面/禁手（这是用户在当前界面里刚选的）；
                 // 限时留空 = 由服务端按账号默认填，避免本地缓存过期
-                val d = Repo.createGame(side, size = newSize, forbidden = newForbidden)
-                room = Repo.game(d.id)
+                val key = gameKey ?: "gomoku"
+                val d = Repo.createGame(side, size = newSize, forbidden = newForbidden, gameKey = key)
+                room = Repo.game(d.id, key)
             } catch (e: Exception) {
                 vm.toast(e.message ?: "建房失败")
             } finally {
@@ -172,7 +207,7 @@ fun GamesScreen(vm: AppVm) {
         scope.launch {
             try {
                 val d = Repo.joinGameByCode(c)
-                room = Repo.game(d.id)
+                room = Repo.game(d.id, gameKey ?: "gomoku")
                 code = ""
             } catch (e: Exception) {
                 vm.toast(e.message ?: "加入失败")
@@ -187,8 +222,9 @@ fun GamesScreen(vm: AppVm) {
         busy = true
         scope.launch {
             try {
-                runCatching { Repo.joinGame(id) }      // 已经在局中会幂等返回
-                room = Repo.game(id)
+                val key = gameKey ?: "gomoku"
+                runCatching { Repo.joinGame(id, key) }      // 已经在局中会幂等返回
+                room = Repo.game(id, key)
             } catch (e: Exception) {
                 vm.toast(e.message ?: "加入失败")
             } finally {
@@ -201,10 +237,10 @@ fun GamesScreen(vm: AppVm) {
         val cur = room ?: return
         scope.launch {
             try {
-                room = Repo.gameMove(cur.id, x, y)
+                room = Repo.gameMove(cur.id, x, y, gameKey ?: "gomoku")
             } catch (e: ApiException) {
                 vm.toast(e.message)
-                runCatching { room = Repo.game(cur.id) }   // 拉一次真相，别停在错误局面
+                runCatching { room = Repo.game(cur.id, gameKey ?: "gomoku") }   // 拉一次真相，别停在错误局面
             } catch (e: Exception) {
                 vm.toast("落子失败，检查网络")
             }
@@ -215,7 +251,7 @@ fun GamesScreen(vm: AppVm) {
         val cur = room ?: return
         scope.launch {
             try {
-                room = Repo.gameResign(cur.id)
+                room = Repo.gameResign(cur.id, gameKey ?: "gomoku")
             } catch (e: Exception) {
                 vm.toast(e.message ?: "操作失败")
             }
@@ -226,7 +262,7 @@ fun GamesScreen(vm: AppVm) {
         val cur = room ?: return
         scope.launch {
             try {
-                room = Repo.gameRematch(cur.id)
+                room = Repo.gameRematch(cur.id, gameKey ?: "gomoku")
             } catch (e: Exception) {
                 vm.toast(e.message ?: "操作失败")
             }
@@ -241,16 +277,29 @@ fun GamesScreen(vm: AppVm) {
     fun leave() {
         val cur = room ?: return
         scope.launch {
-            runCatching { Repo.gameLeave(cur.id) }
+            runCatching { Repo.gameLeave(cur.id, gameKey ?: "gomoku") }
             backToLobby()
         }
     }
 
-    fun saveSettings(next: GameSettingsDto) {
+    fun saveDisplay(next: GameDisplayDto) {
         scope.launch {
             try {
-                settings = Repo.saveGameSettings(next)
-                settingsOpen = false
+                display = Repo.saveGameDisplay(next)
+                displayOpen = false
+                vm.toast("设置已保存")
+            } catch (e: Exception) {
+                vm.toast(e.message ?: "保存失败")
+            }
+        }
+    }
+
+    fun saveRules(next: GameRuleDefaultsDto) {
+        val key = gameKey ?: "gomoku"
+        scope.launch {
+            try {
+                rules = Repo.saveGameRules(key, next)
+                rulesOpen = false
                 vm.toast("设置已保存")
             } catch (e: Exception) {
                 vm.toast(e.message ?: "保存失败")
@@ -259,10 +308,15 @@ fun GamesScreen(vm: AppVm) {
     }
 
     val cur = room
-    if (cur == null) {
-        LobbyContent(
+    when {
+        gameKey == null -> GamesListContent(
+            catalog = catalog,
+            onPick = { gameKey = it },
+            onOpenDisplay = { displayOpen = true },
+        )
+        cur == null -> LobbyContent(
             lobby = lobby,
-            settings = settings,
+            rules = rules,
             newSize = newSize,
             newForbidden = newForbidden,
             loading = loading,
@@ -275,27 +329,34 @@ fun GamesScreen(vm: AppVm) {
             onJoinByCode = ::joinByCode,
             onJoin = ::join,
             onRefresh = { scope.launch { refreshLobby() } },
-            onOpenSettings = { settingsOpen = true },
-            onLeave = { id -> scope.launch { runCatching { Repo.gameLeave(id) }; refreshLobby() } },
+            onBack = { gameKey = null },
+            onOpenRules = { rulesOpen = true },
+            onLeave = { id -> scope.launch { runCatching { Repo.gameLeave(id, gameKey ?: "gomoku") }; refreshLobby() } },
         )
-    } else {
-        RoomContent(
+        else -> RoomContent(
             dto = cur,
-            prefs = settings,
+            prefs = display,
             onMove = ::move,
             onResign = { confirmResign = true },
             onRematch = ::rematch,
             onBack = ::backToLobby,
             onLeaveAsk = { confirmLeave = true },
-            onOpenSettings = { settingsOpen = true },
+            onOpenRules = { rulesOpen = true },
         )
     }
 
-    if (settingsOpen) {
-        GameSettingsSheet(
-            initial = settings,
-            onDismiss = { settingsOpen = false },
-            onSave = ::saveSettings,
+    if (displayOpen) {
+        GameDisplaySheet(
+            initial = display,
+            onDismiss = { displayOpen = false },
+            onSave = ::saveDisplay,
+        )
+    }
+    if (rulesOpen) {
+        GomokuRulesSheet(
+            initial = rules,
+            onDismiss = { rulesOpen = false },
+            onSave = ::saveRules,
         )
     }
 
@@ -321,12 +382,73 @@ fun GamesScreen(vm: AppVm) {
     }
 }
 
+// ---------------- 游戏列表（入口第一屏） ----------------
+
+/**
+ * 入口第一屏：有哪些小游戏 + 游戏总设置入口。
+ *
+ * 列表来自服务端 `GameCatalog` —— 以后加第二种游戏只要在那儿登记一条，
+ * 这里自动多出一张卡，页面骨架不用动。点进某张卡才进它的大厅。
+ */
+@Composable
+private fun GamesListContent(
+    catalog: GameCatalogDto,
+    onPick: (String) -> Unit,
+    onOpenDisplay: () -> Unit,
+) {
+    val p = palette
+    LazyColumn(
+        Modifier.fillMaxSize().navigationBarsPadding(),
+        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item {
+            PageHeadCard(
+                title = "小游戏",
+                actions = { SecondaryButton("设置", onClick = onOpenDisplay) },
+            )
+        }
+
+        items(catalog.games.size) { i ->
+            val g = catalog.games[i]
+            AppCard(
+                Modifier.fillMaxWidth().then(
+                    if (g.available) Modifier.clickable { onPick(g.key) } else Modifier,
+                ),
+                padding = PaddingValues(13.dp),
+            ) {
+                // AppCard 的 content 是 Box 不是 Column —— 多个子项要自己包一层
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(38.dp).background(p.accentSoft, chipShape()),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(AppIcons["gamepad"], null, Modifier.size(19.dp), tint = p.accentStrong)
+                    }
+                    Spacer(Modifier.width(11.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(g.name, fontSize = 14.5.sp, color = p.text, fontWeight = FontWeight.SemiBold)
+                        if (g.sub.isNotBlank()) {
+                            Text(g.sub, fontSize = 11.5.sp, color = p.textSub, lineHeight = 16.sp)
+                        }
+                    }
+                    if (g.available) {
+                        Icon(AppIcons["chevron-right"], null, Modifier.size(17.dp), tint = p.textWeak)
+                    } else {
+                        AppChip("敬请期待")
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ---------------- 大厅 ----------------
 
 @Composable
 private fun LobbyContent(
     lobby: GameLobbyDto,
-    settings: GameSettingsDto,
+    rules: GameRuleDefaultsDto,
     newSize: Int,
     newForbidden: Boolean,
     loading: Boolean,
@@ -339,7 +461,8 @@ private fun LobbyContent(
     onJoinByCode: () -> Unit,
     onJoin: (Int) -> Unit,
     onRefresh: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onBack: () -> Unit,
+    onOpenRules: () -> Unit,
     onLeave: (Int) -> Unit,
 ) {
     val p = palette
@@ -356,7 +479,7 @@ private fun LobbyContent(
                 title = "小游戏",
                 hint = "建一盘，把房间码发给朋友，他输码就能坐下。",
                 actions = {
-                    SecondaryButton("设置", onClick = onOpenSettings)
+                    SecondaryButton("设置", onClick = onOpenRules)
                     Spacer(Modifier.width(8.dp))
                     SecondaryButton("刷新", onClick = onRefresh)
                 },
@@ -392,9 +515,9 @@ private fun LobbyContent(
                         lineHeight = 15.sp,
                         modifier = Modifier.padding(top = 6.dp),
                     )
-                    if (settings.moveTimeoutSec > 0 || settings.totalTimeoutSec > 0) {
+                    if (rules.moveTimeoutSec > 0 || rules.totalTimeoutSec > 0) {
                         Text(
-                            "限时按你的默认设置：" + timeoutSummary(settings.moveTimeoutSec, settings.totalTimeoutSec),
+                            "限时按你的默认设置：" + timeoutSummary(rules.moveTimeoutSec, rules.totalTimeoutSec),
                             fontSize = 11.sp,
                             color = p.textWeak,
                             modifier = Modifier.padding(top = 4.dp),
@@ -508,12 +631,13 @@ private fun RoomRowCard(
 
 // ---------------- 设置弹层 ----------------
 
+/// 游戏总设置：只改自己的画面，不进房间、不影响对手
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun GameSettingsSheet(
-    initial: GameSettingsDto,
+private fun GameDisplaySheet(
+    initial: GameDisplayDto,
     onDismiss: () -> Unit,
-    onSave: (GameSettingsDto) -> Unit,
+    onSave: (GameDisplayDto) -> Unit,
 ) {
     val p = palette
     // 草稿语义：改动只落在本地，点「保存」才提交
@@ -521,14 +645,53 @@ private fun GameSettingsSheet(
 
     PickerSheetShell(onDismiss = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 22.dp)) {
-            Text("小游戏设置", fontSize = 16.sp, color = p.text, fontWeight = FontWeight.SemiBold)
-            Text(
-                "盘面、禁手、限时会在建房时写进房间，已经开打的局不受影响；其余几项只改你自己的画面。",
-                fontSize = 11.5.sp,
-                color = p.textWeak,
-                lineHeight = 16.sp,
-                modifier = Modifier.padding(top = 5.dp),
+            Text("游戏设置", fontSize = 16.sp, color = p.text, fontWeight = FontWeight.SemiBold)
+
+            Spacer(Modifier.height(10.dp))
+            SwitchRow(
+                title = "落子二次确认",
+                checked = d.tapConfirm,
+                onChange = { d = d.copy(tapConfirm = it) },
             )
+            SwitchRow(
+                title = "显示坐标",
+                checked = d.showCoord,
+                onChange = { d = d.copy(showCoord = it) },
+            )
+            SwitchRow(
+                title = "标记最后一手",
+                checked = d.lastMark,
+                onChange = { d = d.copy(lastMark = it) },
+            )
+            SwitchRow(
+                title = "落子震动",
+                checked = d.vibrate,
+                onChange = { d = d.copy(vibrate = it) },
+            )
+
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PrimaryButton("保存", Modifier.weight(1f)) { onSave(d) }
+                SecondaryButton("恢复默认", Modifier.weight(1f)) { d = GameDisplayDto() }
+            }
+        }
+    }
+}
+
+/// 五子棋杂项设置：建房那一刻快照进房间，双方共享
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GomokuRulesSheet(
+    initial: GameRuleDefaultsDto,
+    onDismiss: () -> Unit,
+    onSave: (GameRuleDefaultsDto) -> Unit,
+) {
+    val p = palette
+    var d by remember(initial) { mutableStateOf(initial) }
+
+    PickerSheetShell(onDismiss = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 22.dp)) {
+            Text("五子棋设置", fontSize = 16.sp, color = p.text, fontWeight = FontWeight.SemiBold)
 
             OptionChips(
                 title = "盘面",
@@ -541,12 +704,6 @@ private fun GameSettingsSheet(
                 options = listOf("自由规则", "标准规则"),
                 selectedIndex = if (d.forbidden) 1 else 0,
                 onPick = { d = d.copy(forbidden = it == 1) },
-            )
-            Text(
-                "标准规则下黑方连成六个以上判负（白方长连仍算赢）。",
-                fontSize = 11.sp,
-                color = p.textWeak,
-                modifier = Modifier.padding(top = 4.dp),
             )
             OptionChips(
                 title = "单步限时",
@@ -561,39 +718,10 @@ private fun GameSettingsSheet(
                 onPick = { d = d.copy(totalTimeoutSec = TOTAL_TIMEOUTS[it]) },
             )
 
-            Spacer(Modifier.height(10.dp))
-            SwitchRow(
-                title = "落子二次确认",
-                desc = "第一下只预览，再点同一处才落子。",
-                checked = d.tapConfirm,
-                onChange = { d = d.copy(tapConfirm = it) },
-            )
-            SwitchRow(
-                title = "显示坐标",
-                desc = "棋盘边上标 A、B… 与 1、2…",
-                checked = d.showCoord,
-                onChange = { d = d.copy(showCoord = it) },
-            )
-            SwitchRow(
-                title = "标记最后一手",
-                desc = "在最后落下的那颗棋上点一个小圆点。",
-                checked = d.lastMark,
-                onChange = { d = d.copy(lastMark = it) },
-            )
-            SwitchRow(
-                title = "落子震动",
-                desc = "手机上落子时轻震一下。",
-                checked = d.vibrate,
-                onChange = { d = d.copy(vibrate = it) },
-            )
-
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PrimaryButton("保存", Modifier.weight(1f)) { onSave(d) }
-                SecondaryButton(
-                    "恢复默认",
-                    Modifier.weight(1f),
-                ) { d = GameSettingsDto() }
+                SecondaryButton("恢复默认", Modifier.weight(1f)) { d = GameRuleDefaultsDto() }
             }
         }
     }
@@ -602,7 +730,6 @@ private fun GameSettingsSheet(
 @Composable
 private fun SwitchRow(
     title: String,
-    desc: String,
     checked: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
@@ -611,10 +738,7 @@ private fun SwitchRow(
         Modifier.fillMaxWidth().padding(vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 13.sp, color = p.text)
-            Text(desc, fontSize = 11.sp, color = p.textWeak, lineHeight = 15.sp)
-        }
+        Text(title, Modifier.weight(1f), fontSize = 13.sp, color = p.text)
         Spacer(Modifier.width(10.dp))
         SiteSwitch(checked) { onChange(it) }
     }
@@ -654,13 +778,13 @@ private fun OptionChips(
 @Composable
 private fun RoomContent(
     dto: GameRoomDto,
-    prefs: GameSettingsDto,
+    prefs: GameDisplayDto,
     onMove: (Int, Int) -> Unit,
     onResign: () -> Unit,
     onRematch: () -> Unit,
     onBack: () -> Unit,
     onLeaveAsk: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onOpenRules: () -> Unit,
 ) {
     val p = palette
     val n = if (dto.size > 0) dto.size else 15
@@ -700,7 +824,7 @@ private fun RoomContent(
                 title = "五子棋",
                 hint = "房间 ${dto.code}",
                 actions = {
-                    SecondaryButton("设置", onClick = onOpenSettings)
+                    SecondaryButton("设置", onClick = onOpenRules)
                     Spacer(Modifier.width(8.dp))
                     SecondaryButton("回大厅", onClick = onBack)
                 },
@@ -847,7 +971,7 @@ private fun starPoints(n: Int): List<Pair<Int, Int>> =
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Board(dto: GameRoomDto, n: Int, prefs: GameSettingsDto, onTap: (Int, Int) -> Unit) {
+private fun Board(dto: GameRoomDto, n: Int, prefs: GameDisplayDto, onTap: (Int, Int) -> Unit) {
     // 棋盘与棋子都用固定色，不跟主题：它代表的是一块真实棋盘（浅木底），
     // 五套主题下长得一样。跟着主题变深色的话，黑子会直接糊进背景（macos 主题实测如此）。
     val boardBg = Color(0xFFE9E0CC)

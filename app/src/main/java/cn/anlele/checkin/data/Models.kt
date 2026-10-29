@@ -490,6 +490,8 @@ data class BoardMsgDto(
     val author: String = "",
     val authorId: Int = 0,
     val mine: Boolean = false,
+    /** 服务端算好的删除权限：自己的留言，或有 board.moderate（管理员可删任意） */
+    val canDelete: Boolean = false,
     val createdAt: String = "",
 )
 
@@ -795,17 +797,38 @@ data class GameStoneDto(val x: Int = 0, val y: Int = 0, val s: Int = 0)
  *  · size / forbidden / moveTimeoutSec / totalTimeoutSec —— 影响对局，**建房时快照进房间**
  *  · tapConfirm / showCoord / lastMark / vibrate —— 只影响自己画面，不上服务端
  */
+/** 游戏总设置（显示偏好）：不进房间、不上服务端判定，纯前端表现 */
 @Serializable
-data class GameSettingsDto(
-    val size: Int = 15,
-    val forbidden: Boolean = false,
+data class GameDisplayDto(
     val tapConfirm: Boolean = false,
     val showCoord: Boolean = true,
     val lastMark: Boolean = true,
     val vibrate: Boolean = true,
+)
+
+/** 五子棋杂项设置（规则默认）：建房那一刻快照进房间，之后双方共享 */
+@Serializable
+data class GameRuleDefaultsDto(
+    val size: Int = 15,
+    val forbidden: Boolean = false,
     val moveTimeoutSec: Int = 0,
     val totalTimeoutSec: Int = 0,
 )
+
+/** 游戏目录里的一条 —— /Games 入口第一屏的卡片 */
+@Serializable
+data class GameItemDto(
+    val key: String = "",
+    val name: String = "",
+    val sub: String = "",
+    val minPlayers: Int = 2,
+    val maxPlayers: Int = 2,
+    val available: Boolean = true,
+)
+
+@Serializable
+data class GameCatalogDto(val games: List<GameItemDto> = emptyList())
+
 
 /** 一局的全部状态 —— 与 /api/v1/games/{id} 的 data 一一对应，也用于大厅行 */
 @Serializable
@@ -872,9 +895,12 @@ data class GameLobbyItemDto(
 @Serializable
 data class GameLobbyDto(
     val items: List<GameLobbyItemDto> = emptyList(),
-    val size: Int = 15,
     /** 服务端顺手带回来的我的设置，省一次往返 */
-    val settings: GameSettingsDto = GameSettingsDto(),
+    val display: GameDisplayDto = GameDisplayDto(),
+    val rules: GameRuleDefaultsDto = GameRuleDefaultsDto(),
+    val sizeOptions: List<Int> = emptyList(),
+    val moveTimeoutOptions: List<Int> = emptyList(),
+    val totalTimeoutOptions: List<Int> = emptyList(),
 )
 
 @Serializable

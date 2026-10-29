@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,7 +45,7 @@ import cn.anlele.checkin.ui.components.IconBtn
 import cn.anlele.checkin.ui.components.PageHeadCard
 import cn.anlele.checkin.ui.components.TinyAction
 import cn.anlele.checkin.ui.icons.AppIcons
-import cn.anlele.checkin.ui.theme.cardShape
+import cn.anlele.checkin.ui.theme.cardBackground
 import cn.anlele.checkin.ui.theme.palette
 import cn.anlele.checkin.util.Dates
 import kotlinx.coroutines.launch
@@ -145,7 +146,7 @@ fun CoupleScreen(vm: AppVm) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(p.card)
+                .cardBackground(p)
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -167,6 +168,9 @@ fun CoupleScreen(vm: AppVm) {
     }
 }
 
+/** 小纸条气泡圆角。不能用 p.cardShape()：editorial 主题下它是直角，配上实色底就成一个大方块 */
+private val NoteBubbleShape = RoundedCornerShape(18.dp)
+
 @Composable
 private fun NoteBubble(n: LoveNoteDto, onDelete: () -> Unit) {
     val p = palette
@@ -178,14 +182,23 @@ private fun NoteBubble(n: LoveNoteDto, onDelete: () -> Unit) {
                 color = p.textWeak,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
             )
-            Box(
-                Modifier
-                    .fillMaxWidth(0.82f)
-                    .background(if (n.mine) p.accent else p.card, p.cardShape())
-                    .padding(12.dp),
-            ) {
+            // 自己那条用「浅强调底 + 深强调字」：以前平涂 p.accent，editorial 下接近纯黑，
+            // 再配直角卡片形状，看起来就是一个大黑方块。
+            val bubbleMod = Modifier
+                .fillMaxWidth(0.82f)
+                .then(
+                    if (n.mine) Modifier.background(p.accentSoft, NoteBubbleShape)
+                    else Modifier.cardBackground(p, NoteBubbleShape)
+                )
+                .padding(horizontal = 13.dp, vertical = 10.dp)
+            Box(bubbleMod) {
                 Column {
-                    Text(n.content, fontSize = 13.5.sp, color = if (n.mine) p.onAccent else p.text, lineHeight = 21.sp)
+                    Text(
+                        n.content,
+                        fontSize = 13.5.sp,
+                        color = if (n.mine) p.accentStrong else p.text,
+                        lineHeight = 21.sp,
+                    )
                     if (n.mine) {
                         Spacer(Modifier.height(4.dp))
                         TinyAction("删除", null, danger = false, onClick = onDelete)

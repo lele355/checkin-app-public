@@ -305,14 +305,36 @@ object Repo {
     @Serializable data class GameJoinReq(val code: String)
     @Serializable data class GameMoveReq(val x: Int, val y: Int)
 
-    // ---------------- 我的默认对局设置 ----------------
-    suspend fun gameSettings(): GameSettingsDto = Api.get("/games/settings", cache = false)
+    /** 单游戏杂项设置的响应：规则默认值 + 可选档位 */
+    @Serializable
+    data class GameRuleSettingsDto(
+        val rules: GameRuleDefaultsDto = GameRuleDefaultsDto(),
+        val sizeOptions: List<Int> = emptyList(),
+        val moveTimeoutOptions: List<Int> = emptyList(),
+        val totalTimeoutOptions: List<Int> = emptyList(),
+    )
 
-    suspend fun saveGameSettings(s: GameSettingsDto): GameSettingsDto =
-        Api.put("/games/settings", enc(s, GameSettingsDto.serializer()))
+    // ---------------- 游戏入口：目录 + 游戏总设置 ----------------
+    /** 入口第一屏：有哪些小游戏 */
+    suspend fun gameCatalog(): GameCatalogDto = Api.get("/games", cache = false)
+
+    /** 游戏总设置（显示偏好）：不进房间、不上服务端判定 */
+    suspend fun gameDisplay(): GameDisplayDto = Api.get("/games/settings", cache = false)
+
+    suspend fun saveGameDisplay(d: GameDisplayDto): GameDisplayDto =
+        Api.put("/games/settings", enc(d, GameDisplayDto.serializer()))
+
+    // ---------------- 单游戏：杂项设置 / 大厅 / 对局 ----------------
+    /** 这个游戏的规则默认值（建房时快照进房间） */
+    suspend fun gameRules(gameKey: String = "gomoku"): GameRuleSettingsDto =
+        Api.get("/games/$gameKey/settings", cache = false)
+
+    suspend fun saveGameRules(gameKey: String, r: GameRuleDefaultsDto): GameRuleDefaultsDto =
+        Api.put("/games/$gameKey/settings", enc(r, GameRuleDefaultsDto.serializer()))
 
     /** 大厅：等待中的房间 + 我参与的对局。**不吃离线快照** —— 过期局面比空列表更误导 */
-    suspend fun games(): GameLobbyDto = Api.get("/games", cache = false)
+    suspend fun gameLobby(gameKey: String = "gomoku"): GameLobbyDto =
+        Api.get("/games/$gameKey/rooms", cache = false)
 
     suspend fun createGame(
         side: Int,
@@ -320,8 +342,9 @@ object Repo {
         forbidden: Boolean? = null,
         moveTimeoutSec: Int? = null,
         totalTimeoutSec: Int? = null,
+        gameKey: String = "gomoku",
     ): GameCreateDto = Api.post(
-        "/games",
+        "/games/$gameKey/rooms",
         enc(
             GameCreateReq(side, size, forbidden, moveTimeoutSec, totalTimeoutSec),
             GameCreateReq.serializer(),
@@ -331,17 +354,25 @@ object Repo {
     suspend fun joinGameByCode(code: String): IdDto =
         Api.post("/games/join", enc(GameJoinReq(code), GameJoinReq.serializer()))
 
-    suspend fun joinGame(id: Int): IdDto = Api.post("/games/$id/join")
+    suspend fun joinGame(id: Int, gameKey: String = "gomoku"): IdDto =
+        Api.post("/games/$gameKey/rooms/$id/join")
 
     /** 轮询用：1.2 秒一次，绝不能走快照（会每轮写一次磁盘） */
-    suspend fun game(id: Int): GameRoomDto = Api.get("/games/$id", cache = false)
+    suspend fun game(id: Int, gameKey: String = "gomoku"): GameRoomDto =
+        Api.get("/games/$gameKey/rooms/$id", cache = false)
 
-    suspend fun gameMove(id: Int, x: Int, y: Int): GameRoomDto =
-        Api.post("/games/$id/move", enc(GameMoveReq(x, y), GameMoveReq.serializer()))
+    suspend fun gameMove(id: Int, x: Int, y: Int, gameKey: String = "gomoku"): GameRoomDto =
+        Api.post("/games/$gameKey/rooms/$id/move", enc(GameMoveReq(x, y), GameMoveReq.serializer()))
 
-    suspend fun gameResign(id: Int): GameRoomDto = Api.post("/games/$id/resign")
-    suspend fun gameRematch(id: Int): GameRoomDto = Api.post("/games/$id/rematch")
-    suspend fun gameLeave(id: Int) { Api.exec("POST", "/games/$id/leave") }
+    suspend fun gameResign(id: Int, gameKey: String = "gomoku"): GameRoomDto =
+        Api.post("/games/$gameKey/rooms/$id/resign")
+
+    suspend fun gameRematch(id: Int, gameKey: String = "gomoku"): GameRoomDto =
+        Api.post("/games/$gameKey/rooms/$id/rematch")
+
+    suspend fun gameLeave(id: Int, gameKey: String = "gomoku") {
+        Api.exec("POST", "/games/$gameKey/rooms/$id/leave")
+    }
 
     suspend fun version(): VersionDto = Api.get("/app/version")
     suspend fun changelog(): ChangelogDto = Api.get("/app/changelog")

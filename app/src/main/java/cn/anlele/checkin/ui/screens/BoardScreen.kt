@@ -41,6 +41,7 @@ import cn.anlele.checkin.ui.components.EmptyState
 import cn.anlele.checkin.ui.components.IconBtn
 import cn.anlele.checkin.ui.components.PageHeadCard
 import cn.anlele.checkin.ui.icons.AppIcons
+import cn.anlele.checkin.ui.theme.cardBackground
 import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.palette
 import cn.anlele.checkin.util.Dates
@@ -117,7 +118,7 @@ fun BoardScreen(vm: AppVm) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(p.card)
+                .cardBackground(p)
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -150,7 +151,7 @@ private fun BoardCard(m: BoardMsgDto, onDelete: () -> Unit) {
                     Spacer(Modifier.width(7.dp))
                     Text(Dates.fmt(m.createdAt, "M月d日 HH:mm"), fontSize = 10.5.sp, color = p.textWeak)
                     Spacer(Modifier.weight(1f))
-                    if (m.mine) IconBtn("trash-2", "删除", size = 24.dp, tint = p.textWeak, onClick = onDelete)
+                    if (m.canDelete) IconBtn("trash-2", "删除", size = 24.dp, tint = p.textWeak, onClick = onDelete)
                 }
                 Spacer(Modifier.height(5.dp))
                 Text(m.content, fontSize = 13.5.sp, color = p.text, lineHeight = 21.sp)

@@ -966,8 +966,8 @@ private fun DashCustomSheet(
             Spacer(Modifier.height(10.dp))
 
             // ---------- 问候块：固定最高优先级，不参与排序 ----------
-            // 单独列一行、写明「不可移动」，也从下面三个区的列表里剔掉 ——
-            // 以前它混在「普通区」里跟别的卡一样能被拖动，用户会以为「问候块没固定住」。
+            // 单独列一行、从下面三个区的列表里剔掉 —— 以前它混在「普通区」里跟别的卡一样能被拖动，
+            // 用户会以为「问候块没固定住」。不配 ↑↓/图钉，按钮消失本身就说清了它不可移动。
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -978,13 +978,7 @@ private fun DashCustomSheet(
             ) {
                 Icon(AppIcons["pin"], null, Modifier.size(13.dp), tint = p.accentStrong)
                 Spacer(Modifier.width(7.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("问候块", fontSize = 12.5.sp, color = p.text, fontWeight = FontWeight.Medium)
-                    Text(
-                        if ("hello" in draft.hidden) "已隐藏（打开开关就回到最上面）" else "固定置顶 · 不可移动",
-                        fontSize = 10.5.sp, color = p.textWeak,
-                    )
-                }
+                Text("问候块", Modifier.weight(1f), fontSize = 12.5.sp, color = p.text, fontWeight = FontWeight.Medium)
                 SiteSwitch("hello" !in draft.hidden) { v -> draft = draft.setVisible("hello", v) }
             }
             Spacer(Modifier.height(8.dp))

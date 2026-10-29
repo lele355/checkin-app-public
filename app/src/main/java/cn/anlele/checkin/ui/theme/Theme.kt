@@ -1,5 +1,6 @@
 package cn.anlele.checkin.ui.theme
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -9,8 +10,11 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -397,6 +401,17 @@ fun Palette.cardShape() = RoundedCornerShape(radiusCard)
 fun Palette.buttonShape() = RoundedCornerShape(radiusBtn)
 fun Palette.fieldShape() = RoundedCornerShape(radiusField)
 fun Palette.chipShape() = RoundedCornerShape(radiusChip)
+
+/**
+ * 卡片底色：cardBrush（clay 系渐变）非空时优先于纯色。
+ *
+ * 【为什么要有这个】铁律是「bgBrush/cardBrush 非空必须优先于纯色」，但以前每处都手写
+ * `if (p.cardBrush != null) Modifier.background(p.cardBrush!!, shape) else Modifier.background(p.card, shape)`，
+ * 于是有人（包括我自己）直接写 `.background(p.card)` —— 渐变主题就退成纯白，整块界面发平。
+ * 把判断收进一处，调用方只会写对的写法。
+ */
+fun Modifier.cardBackground(p: Palette, shape: Shape = RectangleShape): Modifier =
+    p.cardBrush?.let { background(it, shape) } ?: background(p.card, shape)
 
 // 无接收者版本：界面里直接写 chipShape() 即可（内部读当前主题）。
 // 有这两个重载，Composable 里就不必到处 `val p = palette` 再 `p.chipShape()`。
