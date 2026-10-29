@@ -48,6 +48,7 @@ import androidx.compose.ui.window.DialogProperties
 import cn.anlele.checkin.ui.icons.AppIcons
 import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.fieldShape
+import cn.anlele.checkin.ui.theme.inShape
 import cn.anlele.checkin.ui.theme.palette
 import cn.anlele.checkin.util.Dates
 import cn.anlele.checkin.util.Weeks
@@ -139,7 +140,7 @@ fun PickerSheetShell(
                     // 横屏时屏幕宽了近三倍，满宽会把 7 列格子拉成很扁的长条，
                     // 视觉上和竖屏完全是两个东西。限个宽，横屏下就是一块居中的面板。
                     .widthIn(max = 520.dp)
-                    .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
+                    .clip(RoundedCornerShape(topStart = p.radiusPop, topEnd = p.radiusPop))
                     .background(p.card)
                     // 内容比屏幕高时（横屏、小屏、周次满 20 格）卡片自己滚，
                     // 而不是从顶部被裁掉——标题被裁等于不知道自己在选什么。
@@ -247,7 +248,7 @@ fun DatePickerSheet(
                     Modifier
                         .fillMaxWidth()
                         .height(34.dp)
-                        .clip(chipShape())
+                        .clip(inShape())
                         .clickable { onPick(""); onDismiss() },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -285,7 +286,7 @@ private fun DayCell(
     // 空格与日期同高，否则整张月历会随月份天数上下跳
     if (key == null) { Box(modifier.height(40.dp)); return }
 
-    val shape = chipShape()
+    val shape = inShape()
     Box(
         modifier
             .height(40.dp)
@@ -318,7 +319,7 @@ private fun QuickChip(text: String, modifier: Modifier = Modifier, onClick: () -
     Box(
         modifier
             .height(34.dp)
-            .clip(chipShape())
+            .clip(inShape())
             .background(p.cardSoft)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -491,7 +492,7 @@ fun NumberSheet(
                             Modifier
                                 .weight(1f)
                                 .height(46.dp)
-                                .clip(chipShape())
+                                .clip(inShape())
                                 .background(if (on) p.accent else p.cardSoft)
                                 .clickable { onPick(n); onDismiss() },
                             contentAlignment = Alignment.Center,
@@ -578,7 +579,7 @@ fun WeekPickerSheet(
                             Modifier
                                 .weight(1f)
                                 .height(44.dp)
-                                .clip(chipShape())
+                                .clip(inShape())
                                 .background(if (on) p.accent else p.cardSoft)
                                 .clickable {
                                     sel = if (on) sel - w else sel + w

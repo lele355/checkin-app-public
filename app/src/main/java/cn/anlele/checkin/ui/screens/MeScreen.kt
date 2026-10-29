@@ -52,7 +52,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 我的 —— 与网页手机端一致：
- * 头像行 → 我的数据（2×4 八宫格，点数字直达模块）→ 基础资料（内联表单）→ 修改密码（内联表单）。
+ * 头像行 → 我的数据（2×4 八宫格，点数字直达模块）→ 账户（只读行 + 弹层编辑）→ 更多。
  */
 @Composable
 fun MeScreen(
@@ -74,6 +74,7 @@ fun MeScreen(
     var newPwd by remember { mutableStateOf("") }
     var newPwd2 by remember { mutableStateOf("") }
     var savingPwd by remember { mutableStateOf(false) }
+    var passwordEdit by remember { mutableStateOf(false) }
     var logoutAsk by remember { mutableStateOf(false) }
     var profileEdit by remember { mutableStateOf(false) }
 
@@ -144,58 +145,19 @@ fun MeScreen(
             }
         }
 
-        // ---------- 基础资料（只读行 + 二级编辑） ----------
+        // ---------- 账户（只读行 + 二级编辑） ----------
         // 三个输入框常驻在这一页，页面永远「是个表单」—— 但多数时候只是想看一眼。
-        // 改成「值在这里、点开才编辑」：平时清爽，要改点「编辑资料」进弹层。
+        // 改成「值在这里、点开才编辑」：平时清爽，要改点「编辑资料 / 修改密码」进弹层。
         StaggerIn(2) {
             AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
                 Column {
-                    GroupHead("基础资料")
+                    GroupHead("账户")
                     MeRow("user-cog", "登录名", trailing = me.username) { }
-                    MeRow("pencil", "昵称", trailing = name.ifBlank { "未填" }) { profileEdit = true }
-                    MeRow("mail", "联系邮箱", trailing = email.ifBlank { "未填" }) { profileEdit = true }
-                    MeRow("pencil", "个性签名", trailing = sig.ifBlank { "未填" }) { profileEdit = true }
+                    MeRow("pencil", "昵称", trailing = name.ifBlank { "未填写" }) { profileEdit = true }
+                    MeRow("mail", "联系邮箱", trailing = email.ifBlank { "未填写" }) { profileEdit = true }
+                    MeRow("pencil", "个性签名", trailing = sig.ifBlank { "未填写" }) { profileEdit = true }
                     MeRow("pencil", "编辑资料", trailing = null) { profileEdit = true }
-                }
-            }
-        }
-
-        // ---------- 修改密码 ----------
-        StaggerIn(3) {
-            AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
-                Column {
-                    GroupHead("修改密码")
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                        Text(
-                            "至少 8 位，同时包含字母和数字更安全。改完立即生效，其它设备上的登录会失效。",
-                            fontSize = 11.5.sp, color = p.textWeak, lineHeight = 17.sp,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        AppField("当前密码", oldPwd, { oldPwd = it }, password = true)
-                        Spacer(Modifier.height(11.dp))
-                        AppField("新密码", newPwd, { newPwd = it }, password = true)
-                        Spacer(Modifier.height(11.dp))
-                        AppField("确认新密码", newPwd2, { newPwd2 = it }, password = true)
-                        Spacer(Modifier.height(14.dp))
-                        PrimaryButton("修改密码", Modifier.fillMaxWidth(), loading = savingPwd) {
-                            if (newPwd.length < 8) { vm.toast("新密码至少 8 位"); return@PrimaryButton }
-                            if (newPwd != newPwd2) { vm.toast("两次输入的新密码不一样"); return@PrimaryButton }
-                            savingPwd = true
-                            scope.launch {
-                                try {
-                                    vm.updateMe(Repo.changePassword(oldPwd, newPwd))
-                                    oldPwd = ""; newPwd = ""; newPwd2 = ""
-                                    vm.toast("密码已改，其它设备需要重新登录")
-                                } catch (e: ApiException) {
-                                    vm.toast(e.message)
-                                } catch (e: Exception) {
-                                    vm.toast("改密失败")
-                                } finally {
-                                    savingPwd = false
-                                }
-                            }
-                        }
-                    }
+                    MeRow("lock", "修改密码", trailing = null) { passwordEdit = true }
                 }
             }
         }
@@ -203,7 +165,7 @@ fun MeScreen(
         // ---------- 设置入口 ----------
         // 外观、通知、权限、更新、导出、账号、备案信息全搬到独立的「设置」页了。
         // 「我的」只留个人资料与改密码 —— 一个是常看常改的，一个是一学期点两次的。
-        StaggerIn(4) {
+        StaggerIn(3) {
             AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
                 Column {
                     GroupHead("更多")
@@ -242,11 +204,8 @@ fun MeScreen(
                 }
             },
         ) {
-            Text(
-                "昵称会显示在导航、留言和卡片里；邮箱只有你自己和管理员看得到。登录名（${me.username}）不可自行修改。",
-                fontSize = 12.sp, color = p.textSub,
-            )
-            Spacer(Modifier.height(12.dp))
+            AppField("登录名（不可改）", me.username, {}, enabled = false)
+            Spacer(Modifier.height(11.dp))
             AppField("昵称", name, { name = it }, placeholder = "管理员")
             Spacer(Modifier.height(11.dp))
             AppField("联系邮箱（选填）", email, { email = it }, placeholder = "you@example.com")
@@ -256,6 +215,43 @@ fun MeScreen(
                 placeholder = "一句话介绍自己，最多 60 字",
                 singleLine = false, minLines = 2, maxLines = 3,
             )
+        }
+    }
+
+    if (passwordEdit) {
+        EditSheet(
+            title = "修改密码",
+            onClose = { passwordEdit = false },
+            saving = savingPwd,
+            saveText = "修改密码",
+            onSave = {
+                if (newPwd.length < 8 || !newPwd.any { it.isLetter() } || !newPwd.any { it.isDigit() }) {
+                    vm.toast("新密码至少 8 位，且须同时包含字母和数字。");
+                    return@EditSheet
+                }
+                if (newPwd != newPwd2) { vm.toast("两次输入的新密码不一致。"); return@EditSheet }
+                savingPwd = true
+                scope.launch {
+                    try {
+                        vm.updateMe(Repo.changePassword(oldPwd, newPwd))
+                        oldPwd = ""; newPwd = ""; newPwd2 = ""
+                        vm.toast("密码已更新，其它设备需要重新登录")
+                        passwordEdit = false
+                    } catch (e: ApiException) {
+                        vm.toast(e.message)
+                    } catch (e: Exception) {
+                        vm.toast("改密失败")
+                    } finally {
+                        savingPwd = false
+                    }
+                }
+            },
+        ) {
+            AppField("当前密码", oldPwd, { oldPwd = it }, password = true)
+            Spacer(Modifier.height(11.dp))
+            AppField("新密码（至少 8 位，含字母和数字）", newPwd, { newPwd = it }, password = true)
+            Spacer(Modifier.height(11.dp))
+            AppField("确认新密码", newPwd2, { newPwd2 = it }, password = true)
         }
     }
 
@@ -278,7 +274,7 @@ private fun DataGrid(me: MeDto, go: (String) -> Unit) {
     val p = palette
     val items = listOf(
         Triple("calendar", "${me.counts.schedules}", "日程") to "schedule",
-        Triple("note", "${me.counts.memos}", "便签") to "memo",
+        Triple("note", "${me.counts.memos}", "备忘") to "memo",
         Triple("check", "${me.counts.checkins}", "打卡") to "habits",
         Triple("grid", "${me.counts.courses}", "课程") to "courses",
         Triple("heart", "${me.counts.anniversaries}", "纪念日") to "anniversary",

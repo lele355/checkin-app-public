@@ -173,27 +173,6 @@ fun DashboardScreen(vm: AppVm, me: MeDto, go: (String) -> Unit) {
             item { BannerBar(error!!, tone = BannerTone.Error) }
         }
 
-        // 问候卡被隐藏时，齿轮也跟着没了 —— 这里补一个入口，
-        // 否则「自定义工作台」面板再也打不开，等于把用户锁在门外。
-        if ("hello" !in ordered) {
-            item {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(chipShape())
-                        .background(palette.cardSoft)
-                        .clickable { customOpen = true }
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(AppIcons["settings-2"], null, Modifier.size(14.dp), tint = palette.textSub)
-                    Spacer(Modifier.width(8.dp))
-                    Text("自定义工作台", fontSize = 13.sp, color = palette.textSub, modifier = Modifier.weight(1f))
-                    Icon(AppIcons["chevron-right"], null, Modifier.size(13.dp), tint = palette.textWeak)
-                }
-            }
-        }
-
         // ---------- 新消息提示（不弹系统通知，只在对打开 App 时提示；不属于卡片布局） ----------
         if (d != null) {
             val unreadMail = d.mails?.unread ?: 0
@@ -645,7 +624,7 @@ private fun CoursesCard(d: DashboardDto, pinned: Boolean, onTogglePin: () -> Uni
         onOpen, pinned, onTogglePin,
     ) {
         if (d.todayCourses.isEmpty()) {
-            SiteEmpty("🎒", if (d.semesterConfigured) "今天没课，好好休息。" else "还没设置学期起始日，先设一下。")
+            SiteEmpty("🎒", if (d.semesterConfigured) "今天没有课" else "还没设置学期起始日")
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 d.todayCourses.forEach { c -> CourseLine(c) }
@@ -688,7 +667,7 @@ private fun CourseLine(c: CourseTodayDto) {
 private fun ScheduleCard(d: DashboardDto, pinned: Boolean, onTogglePin: () -> Unit, onOpen: () -> Unit) {
     DashCard("📅", "未来 7 天日程", "完整日程 →", onOpen, pinned, onTogglePin) {
         if (d.upcoming.isEmpty()) {
-            SiteEmpty("🗓", "这几天没有安排，去日历看一眼。")
+            SiteEmpty("🗓", "未来 7 天没有安排")
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 d.upcoming.forEach { s -> ScheduleLine(s) }
@@ -701,7 +680,7 @@ private fun ScheduleCard(d: DashboardDto, pinned: Boolean, onTogglePin: () -> Un
 private fun MemoCard(d: DashboardDto, pinned: Boolean, onTogglePin: () -> Unit, onOpen: () -> Unit) {
     DashCard("📌", "置顶备忘", "全部备忘 →", onOpen, pinned, onTogglePin) {
         if (d.pinnedMemos.isEmpty()) {
-            SiteEmpty("📝", "还没有置顶的备忘，去备忘墙挑一条顶上来。")
+            SiteEmpty("📝", "还没有置顶备忘")
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 d.pinnedMemos.forEach { m ->
@@ -741,8 +720,8 @@ private fun AnnivCard(a: AnnivCardDto, pinned: Boolean, onTogglePin: () -> Unit,
 @Composable
 private fun MailCard(mail: MailsCardDto, pinned: Boolean, onTogglePin: () -> Unit, onOpen: () -> Unit) {
     DashCard("📬", "邮件", "打开收件箱 →", onOpen, pinned, onTogglePin) {
-        if (!mail.hasAccounts) SiteEmpty("📮", "还没绑定邮箱，去「邮件 → 账号」添加一个（QQ / 163 / Gmail 都行）。")
-        else if (mail.recent.isEmpty()) SiteEmpty("📭", "收件箱是空的，点开邮件页同步一下。")
+        if (!mail.hasAccounts) SiteEmpty("📮", "还没有绑定邮箱")
+        else if (mail.recent.isEmpty()) SiteEmpty("📭", "收件箱是空的")
         else Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             mail.recent.forEach { m ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -771,7 +750,7 @@ private fun MailCard(mail: MailsCardDto, pinned: Boolean, onTogglePin: () -> Uni
 @Composable
 private fun BoardCard(d: DashboardDto, pinned: Boolean, onTogglePin: () -> Unit, onOpen: () -> Unit) {
     DashCard("💬", "留言板", "去留言板 →", onOpen, pinned, onTogglePin) {
-        if (d.board.isEmpty()) SiteEmpty("💭", "还没有人留言，说点什么吧。")
+        if (d.board.isEmpty()) SiteEmpty("💭", "还没有留言")
         else Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             d.board.forEach { b ->
                 Column {
@@ -958,16 +937,12 @@ private fun DashCustomSheet(
     PickerSheetShell(onDismiss = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             Text("自定义工作台", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = p.text)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "置顶区的卡片永远排在最上面；取消「显示」就收起这张卡（数据不会丢，随时能勾回来）。",
-                fontSize = 12.sp, color = p.textWeak, lineHeight = 18.sp,
-            )
             Spacer(Modifier.height(10.dp))
 
-            // ---------- 问候块：固定最高优先级，不参与排序 ----------
+            // ---------- 问候块：固定最高优先级，不参与排序，也不可隐藏 ----------
             // 单独列一行、从下面三个区的列表里剔掉 —— 以前它混在「普通区」里跟别的卡一样能被拖动，
-            // 用户会以为「问候块没固定住」。不配 ↑↓/图钉，按钮消失本身就说清了它不可移动。
+            // 用户会以为「问候块没固定住」。不配 ↑↓/图钉/显隐开关：
+            // 面板唯一的入口（它的齿轮）在它身上，藏了它用户就再也进不了面板。
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -979,7 +954,6 @@ private fun DashCustomSheet(
                 Icon(AppIcons["pin"], null, Modifier.size(13.dp), tint = p.accentStrong)
                 Spacer(Modifier.width(7.dp))
                 Text("问候块", Modifier.weight(1f), fontSize = 12.5.sp, color = p.text, fontWeight = FontWeight.Medium)
-                SiteSwitch("hello" !in draft.hidden) { v -> draft = draft.setVisible("hello", v) }
             }
             Spacer(Modifier.height(8.dp))
 
@@ -996,7 +970,7 @@ private fun DashCustomSheet(
                 onMove = { id, d -> draft = draft.move(id, d) },
             )
             // 隐藏区不给排序按钮：看不见的卡片排位置没意义，也容易让人以为「挪出来就显示了」
-            // （问候块也不在这里出现，它的显隐在上面那个开关里）
+            // （问候块不可隐藏，也不在这里出现）
             DashSection(
                 "已隐藏", draft.hidden.filter { it != "hello" }, names, draft,
                 onPin = { id -> draft = draft.togglePin(id) },

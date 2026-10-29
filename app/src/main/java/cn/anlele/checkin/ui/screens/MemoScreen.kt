@@ -57,7 +57,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 备忘 —— 与网页手机端一致：默认列表（标题 + 摘要 + 时间 + 图钉 + 编辑），
- * 可切「卡片」视图（两列便签墙）；顶部带搜索。
+ * 可切「卡片」视图（两列卡片墙）；顶部带搜索。
  */
 @Composable
 fun MemoScreen(vm: AppVm) {
@@ -93,8 +93,7 @@ fun MemoScreen(vm: AppVm) {
     ) {
         item {
             PageHeadCard(
-                title = "备忘记事",
-                hint = "置顶的备忘会出现在工作台首页。",
+                title = "备忘",
                 actions = {
                     ViewSwitch(
                         options = listOf("list" to "列表", "grid" to "卡片"),
@@ -111,7 +110,7 @@ fun MemoScreen(vm: AppVm) {
         if (rows.isEmpty() && !loading) {
             item {
                 AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
-                    SiteEmpty("📝", if (q.isBlank()) "还没有便签，随手记下想到的事。" else "没搜到相关便签。") {
+                    SiteEmpty("📝", if (q.isBlank()) "还没有备忘" else "没有匹配的备忘") {
                         if (q.isBlank()) PrimaryButton("写第一条", icon = "plus") { editing = null; editorOpen = true }
                     }
                 }

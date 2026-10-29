@@ -101,7 +101,7 @@ fun CoupleScreen(vm: AppVm) {
 
         ) {
 
-            item { PageHeadCard(title = "情侣空间", hint = "只有你和 TA 能看到的小天地。") }
+            item { PageHeadCard(title = "情侣空间") }
             item {
                 AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(18.dp)) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -136,7 +136,7 @@ fun CoupleScreen(vm: AppVm) {
             item { Text("小纸条", fontSize = 13.sp, color = p.textSub, fontWeight = FontWeight.Medium) }
 
             if (d?.notes.isNullOrEmpty() && !loading) {
-                item { Text("还没有小纸条，写第一张吧", fontSize = 12.5.sp, color = p.textWeak) }
+                item { Text("还没有小纸条", fontSize = 12.5.sp, color = p.textWeak) }
             } else {
                 val notes = d?.notes.orEmpty()
                 items(notes.size) { i -> NoteBubble(notes[i]) { scope.launch { runCatching { Repo.deleteNote(notes[i].id) }; load() } } }

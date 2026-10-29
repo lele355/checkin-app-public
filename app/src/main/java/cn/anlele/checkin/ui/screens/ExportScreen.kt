@@ -89,7 +89,7 @@ fun ExportScreen(vm: AppVm) {
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        PageHeadCard(title = "数据导出", hint = "只导出你自己的数据，不含别人的")
+        PageHeadCard(title = "数据导出", hint = "导出文件不含密码")
         AppCard(Modifier.fillMaxWidth(), padding = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -99,8 +99,7 @@ fun ExportScreen(vm: AppVm) {
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "把日程、备忘、打卡、记账、课程、纪念日、经期、留言打包成一个 JSON 文件。" +
-                        "文件会先存到手机里，再弹出系统分享，你可以发给自己存档。",
+                    "把日程、备忘、打卡、记账、课程、纪念日、经期、留言打包成一个 JSON 文件。",
                     fontSize = 12.5.sp,
                     color = p.textSub,
                     lineHeight = 19.sp,

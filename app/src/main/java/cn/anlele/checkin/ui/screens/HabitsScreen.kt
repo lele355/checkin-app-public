@@ -127,7 +127,7 @@ fun HabitsScreen(vm: AppVm) {
         if (rows.isEmpty() && !loading) {
             item {
                 AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
-                    SiteEmpty("🌱", "还没有习惯，点右上角新建一个吧。") {
+                    SiteEmpty("🌱", "还没有习惯") {
                         PrimaryButton("新建习惯", icon = "plus") { editing = null; editorOpen = true }
                     }
                 }

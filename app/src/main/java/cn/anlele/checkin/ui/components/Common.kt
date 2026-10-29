@@ -471,7 +471,7 @@ fun BannerBar(text: String, modifier: Modifier = Modifier, tone: BannerTone = Ba
     Box(
         modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(p.chipShape())
             .background(bg)
             .padding(horizontal = 12.dp, vertical = 9.dp),
     ) {
@@ -507,7 +507,7 @@ fun NoticeBar(
         modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 5.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(p.chipShape())
             .background(bg)
             .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -525,14 +525,14 @@ fun NoticeBar(
             fontWeight = FontWeight.Medium,
             color = fg,
             modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
+                .clip(p.chipShape())
                 .clickable(onClick = onAction)
                 .padding(horizontal = 8.dp, vertical = 2.dp),
         )
         Box(
             Modifier
                 .size(24.dp)
-                .clip(RoundedCornerShape(6.dp))
+                .clip(p.chipShape())
                 .clickable(onClick = onClose),
             contentAlignment = Alignment.Center,
         ) {

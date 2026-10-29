@@ -204,7 +204,7 @@ fun ExpensesScreen(vm: AppVm) {
                         Column {
                             GroupHead("${Dates.fmt("$ym-01", "M月")}流水 · 共 ${d.summary.count} 笔")
                             if (d.items.isEmpty()) {
-                                SiteEmpty("💰", "这个月还没有账，点右上角记一笔。") {
+                                SiteEmpty("💰", "这个月还没有账") {
                                     PrimaryButton("记一笔", icon = "plus") { editing = null; editorOpen = true }
                                 }
                             } else {
@@ -375,6 +375,8 @@ private fun ExpenseEditor(
                 onSaved = { list ->
                     manageOpen = false
                     onCategoriesChange(list)
+                    // 保存成功的可感知反馈（与网页分类页保存后的提示对齐，0.1）
+                    vm.toast("分类已保存")
                     // 当前选中的分类如果被删掉了，落到列表第一个，别让 chip 全部不高亮
                     if (category !in list) category = list.firstOrNull() ?: "其他"
                 },

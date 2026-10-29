@@ -22,6 +22,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +34,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import cn.anlele.checkin.ui.theme.LocalPalette
 import cn.anlele.checkin.ui.theme.palette
+import cn.anlele.checkin.ui.theme.popShape
 import kotlinx.coroutines.delay
 
 /**
@@ -60,6 +63,8 @@ fun EditSheet(
         onDismissRequest = onClose,
         sheetState = sheet,
         containerColor = p.card,
+        // 浮层外圆角走 radiusPop（与网页 dialog.app-modal 的 --radius-pop 对齐）
+        shape = p.popShape(),
         dragHandle = {
             Box(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp), contentAlignment = Alignment.Center) {
                 Box(Modifier.size(width = 36.dp, height = 4.dp).clip(CircleShape).background(p.borderStrong.copy(alpha = .35f)))
@@ -79,7 +84,12 @@ fun EditSheet(
                 if (destructive != null) destructive()
             }
             Spacer(Modifier.height(16.dp))
-            content()
+            // modal 对同心圆角：弹层外框 radiusPop，弹层内输入框组用 radiusIn
+            // （与网页 dialog.app-modal 内 .field 用 --radius-in-modal 同一对公式）。
+            // 用 LocalPalette 覆盖 radiusField，弹层里的 AppField / DateField 自动跟随，页面上的仍是 radiusField。
+            CompositionLocalProvider(LocalPalette provides p.copy(radiusField = p.radiusIn)) {
+                content()
+            }
             if (onSave != null) {
                 Spacer(Modifier.height(20.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

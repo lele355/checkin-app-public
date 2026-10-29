@@ -134,7 +134,7 @@ fun NotifyScreen(vm: AppVm) {
         staggerItem(0) {
             PageHeadCard(
                 title = "通知设置",
-                hint = "提醒在本机准时弹出，不依赖网络。下面「手机权限」没开的那几项，会让所有开关失效。",
+                hint = "下面「手机权限」没开的那几项，会让所有开关失效。",
                 actions = {
                     HeadButton("测试", icon = "bell") {
                         NotifyHelper.showTest(ctx)

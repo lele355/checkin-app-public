@@ -86,13 +86,9 @@ fun RegisterSheet(
             }
         },
     ) {
-        Text(
-            "本站是邀请制：需要管理员发的 12 位邀请码（形如 ANLE-8F3K-2Q7M，横杠写不写都行）。",
-            fontSize = 12.sp, color = p.textSub, lineHeight = 18.sp,
-        )
         Spacer(Modifier.height(14.dp))
 
-        AppField("邀请码", code, { code = it.uppercase() }, placeholder = "ANLE-8F3K-2Q7M（横杠可省略）")
+        AppField("邀请码（12 位）", code, { code = it.uppercase() }, placeholder = "ANLE-8F3K-2Q7M（横杠可省略）")
         Spacer(Modifier.height(11.dp))
         AppField("用户名", username, { username = it }, placeholder = "登录用，2–20 位，中英文都行")
         Spacer(Modifier.height(11.dp))
@@ -111,8 +107,5 @@ fun RegisterSheet(
         )
 
         Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("注册完会直接登录，不用再输一遍。", fontSize = 11.sp, color = p.textWeak)
-        }
     }
 }

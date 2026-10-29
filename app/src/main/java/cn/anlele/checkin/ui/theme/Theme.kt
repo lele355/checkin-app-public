@@ -102,6 +102,10 @@ data class Palette(
     val radiusBtn: Dp,
     val radiusField: Dp,
     val radiusChip: Dp,
+    /** 浮层外圆角（对应网页 --radius-pop）：弹层容器 / ModalBottomSheet */
+    val radiusPop: Dp,
+    /** 浮层内嵌圆角（对应网页 --radius-in）：嵌在弹层里的格子/字段组，= max(6, pop-间距) */
+    val radiusIn: Dp,
     val serifTitle: Boolean,
     val neumorph: Boolean,
     val isDark: Boolean,
@@ -132,6 +136,8 @@ private val Editorial = Palette(
     radiusBtn = 0.dp,
     radiusField = 0.dp,
     radiusChip = 2.dp,
+    radiusPop = 0.dp,
+    radiusIn = 0.dp,
     serifTitle = true,
     neumorph = false,
     isDark = false,
@@ -157,6 +163,8 @@ private val Neumorphism = Palette(
     radiusBtn = 12.dp,
     radiusField = 12.dp,
     radiusChip = 10.dp,
+    radiusPop = 20.dp,
+    radiusIn = 12.dp,
     serifTitle = false,
     neumorph = true,
     isDark = false,
@@ -182,6 +190,8 @@ private val Natural = Palette(
     radiusBtn = 999.dp,
     radiusField = 18.dp,
     radiusChip = 999.dp,
+    radiusPop = 28.dp,
+    radiusIn = 20.dp,
     serifTitle = false,
     neumorph = false,
     isDark = false,
@@ -207,6 +217,8 @@ private val Macos = Palette(
     radiusBtn = 9.dp,
     radiusField = 9.dp,
     radiusChip = 8.dp,
+    radiusPop = 14.dp,
+    radiusIn = 6.dp,
     serifTitle = false,
     neumorph = false,
     isDark = true,
@@ -234,6 +246,8 @@ private val Clay = Palette(
     radiusBtn = 20.dp,
     radiusField = 20.dp,
     radiusChip = 16.dp,
+    radiusPop = 30.dp,
+    radiusIn = 22.dp,
     serifTitle = false,
     neumorph = false,
     isDark = false,
@@ -401,6 +415,10 @@ fun Palette.cardShape() = RoundedCornerShape(radiusCard)
 fun Palette.buttonShape() = RoundedCornerShape(radiusBtn)
 fun Palette.fieldShape() = RoundedCornerShape(radiusField)
 fun Palette.chipShape() = RoundedCornerShape(radiusChip)
+/** 浮层外圆角：ModalBottomSheet / 弹层容器（对应网页 --radius-pop） */
+fun Palette.popShape() = RoundedCornerShape(radiusPop)
+/** 浮层内嵌圆角：嵌在弹层里的格子 / 字段组（对应网页 --radius-in） */
+fun Palette.inShape() = RoundedCornerShape(radiusIn)
 
 /**
  * 卡片底色：cardBrush（clay 系渐变）非空时优先于纯色。
@@ -419,6 +437,8 @@ fun Modifier.cardBackground(p: Palette, shape: Shape = RectangleShape): Modifier
 @Composable fun buttonShape(): RoundedCornerShape = LocalPalette.current.buttonShape()
 @Composable fun fieldShape(): RoundedCornerShape = LocalPalette.current.fieldShape()
 @Composable fun chipShape(): RoundedCornerShape = LocalPalette.current.chipShape()
+@Composable fun popShape(): RoundedCornerShape = LocalPalette.current.popShape()
+@Composable fun inShape(): RoundedCornerShape = LocalPalette.current.inShape()
 
 private fun typographyFor(p: Palette): Typography {
     val head = if (p.serifTitle) FontFamily.Serif else FontFamily.Default

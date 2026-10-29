@@ -42,7 +42,7 @@ import cn.anlele.checkin.ui.theme.palette
 import cn.anlele.checkin.util.Dates
 import kotlinx.coroutines.launch
 
-/** 经期助手 —— 记录 + 周期预测（预测算法与提醒中心一致：近 3 次平均）。 */
+/** 经期助手 —— 记录 + 周期预测（预测算法与提醒一致：近 3 次平均）。 */
 @Composable
 fun PeriodScreen(vm: AppVm) {
     val p = palette
@@ -79,7 +79,7 @@ fun PeriodScreen(vm: AppVm) {
 
         ) {
 
-            item { PageHeadCard(title = "经期助手", hint = "记录与预测都只存在你自己的账号里，别人看不到。") }
+            item { PageHeadCard(title = "经期助手", hint = "仅自己可见") }
             data.predict?.let { pr ->
                 item {
                     AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
@@ -108,7 +108,7 @@ fun PeriodScreen(vm: AppVm) {
 
             if (data.items.isEmpty()) {
                 item {
-                    EmptyState(icon = "drop", title = "还没有记录", hint = "记一次，之后就能预测了") {
+                    EmptyState(icon = "drop", title = "还没有记录") {
                         PrimaryButton("记录一次", icon = "plus") { editing = null; editorOpen = true }
                     }
                 }
@@ -171,7 +171,7 @@ private fun PeriodEditor(vm: AppVm, initial: PeriodRecordDto?, onClose: () -> Un
     var saving by remember { mutableStateOf(false) }
 
     EditSheet(
-        title = if (initial == null) "记录经期" else "修改记录",
+        title = if (initial == null) "记录一次" else "编辑记录",
         onClose = onClose,
         saving = saving,
         destructive = if (initial == null) null else ({
@@ -196,7 +196,7 @@ private fun PeriodEditor(vm: AppVm, initial: PeriodRecordDto?, onClose: () -> Un
     ) {
         DateField("开始日期", start, { start = it })
         Spacer(Modifier.height(12.dp))
-        DateField("结束日期", end, { end = it }, placeholder = "还在进行", clearable = true)
+        DateField("结束日期（可后补）", end, { end = it }, placeholder = "还在进行", clearable = true)
         Spacer(Modifier.height(12.dp))
         AppField("备注", note, { note = it }, placeholder = "可不填")
     }

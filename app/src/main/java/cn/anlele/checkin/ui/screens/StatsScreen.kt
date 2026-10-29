@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 private val HEAT = Color(0xFF3E9E5B)
 
 /**
- * 统计年报 —— 与网页手机端一致：
+ * 统计 —— 与网页手机端一致：
  * 计数 chips → 近 90 天打卡热力图（带「少·多」图例）→ 打卡排行（条状）→ 近 6 月支出（柱状）。
  */
 @Composable
@@ -95,7 +95,7 @@ fun StatsScreen(vm: AppVm) {
                     Column {
                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                             AppChip("日程 ${data.counts.schedules}")
-                            AppChip("便签 ${data.counts.memos}")
+                            AppChip("备忘 ${data.counts.memos}")
                             AppChip("课程 ${data.counts.courses}")
                             AppChip("留言 ${data.counts.board}")
                         }

@@ -182,7 +182,7 @@ fun LoginScreen(vm: AppVm) {
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "自用小站，账号由管理员开通，或凭邀请码自助注册。",
+                "账号由管理员开通，或凭邀请码注册",
                 fontSize = 12.sp,
                 color = p.textSub,
                 lineHeight = 18.sp,

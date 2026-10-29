@@ -40,7 +40,7 @@ import cn.anlele.checkin.ui.theme.chipShape
 import cn.anlele.checkin.ui.theme.palette
 import kotlinx.coroutines.launch
 
-/** 提醒中心 —— 把近期事项聚成一张清单，点一条直接跳到对应模块。 */
+/** 提醒 —— 把近期事项聚成一张清单，点一条直接跳到对应模块。 */
 @Composable
 fun RemindersScreen(vm: AppVm, go: (String) -> Unit) {
     val p = palette

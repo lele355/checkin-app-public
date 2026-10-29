@@ -214,7 +214,6 @@ fun AiScreen(vm: AppVm, onSwitchAccount: (() -> Unit)? = null) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             PageHeadCard(
                 title = "AI 助手",
-                hint = "说「明天下午三点开会」或「午饭 15 元」就能直接建；点左下角回形针可发课表截图。AI 只出建议，确认后才写入。",
                 actions = {
                     // 账号相关操作收敛在页头：这里是「以谁的身份在问 AI」最直观的位置
                     if (onSwitchAccount != null) {
@@ -246,8 +245,7 @@ fun AiScreen(vm: AppVm, onSwitchAccount: (() -> Unit)? = null) {
             Box(Modifier.weight(1f)) {
                 EmptyState(
                     icon = "spark",
-                    title = "问我点什么吧",
-                    hint = "「明天下午三点开会」我就能帮你排进日程",
+                    title = "还没有对话",
                 )
             }
         } else {
@@ -291,7 +289,7 @@ fun AiScreen(vm: AppVm, onSwitchAccount: (() -> Unit)? = null) {
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
                                         .size(96.dp)
-                                        .clip(RoundedCornerShape(12.dp)),
+                                        .clip(chipShape()),
                                 )
                             }
                         }
@@ -330,7 +328,7 @@ fun AiScreen(vm: AppVm, onSwitchAccount: (() -> Unit)? = null) {
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .size(60.dp)
-                                .clip(RoundedCornerShape(10.dp)),
+                                .clip(chipShape()),
                         )
                         Box(
                             Modifier

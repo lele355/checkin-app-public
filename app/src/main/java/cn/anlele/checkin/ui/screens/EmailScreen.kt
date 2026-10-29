@@ -131,8 +131,7 @@ fun EmailScreen(vm: AppVm) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PageHeadCard(
                 title = if (tab == 0) "收件箱" else "邮箱账号",
-                hint = if (tab == 0) "多个邮箱的信汇成一个列表；点开自动标已读。"
-                       else "授权码加密存放，界面永不回显，删账号会连缓存信件一起清掉。",
+                hint = if (tab == 0) null else "删账号会连缓存信件一起清掉。",
             )
             ViewSwitch(
                 options = listOf("mail" to "收件箱", "settings-2" to "账号"),

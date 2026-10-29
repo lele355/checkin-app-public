@@ -105,13 +105,6 @@ fun AccountSwitchSheet(
                 SheetGripBar()
                 Column(Modifier.padding(horizontal = 16.dp)) {
                     Text("切换账号", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = p.text)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "点一下就直接换成那个号，不用重新输密码。",
-                        fontSize = 11.5.sp,
-                        color = p.textWeak,
-                        lineHeight = 17.sp,
-                    )
                     Spacer(Modifier.height(14.dp))
 
                     // 先亮明「现在是谁」：否则面板里只看到别人的号，
@@ -164,13 +157,6 @@ fun AccountSwitchSheet(
                         ) {
                             Column {
                                 Text("还只有这一个账号", fontSize = 12.5.sp, color = p.textSub)
-                                Spacer(Modifier.height(5.dp))
-                                Text(
-                                    "用另一个号登录一次，它就会出现在这里，之后两边可以一键来回切。",
-                                    fontSize = 11.5.sp,
-                                    color = p.textWeak,
-                                    lineHeight = 17.sp,
-                                )
                             }
                         }
                     } else {
@@ -209,7 +195,7 @@ fun AccountSwitchSheet(
 
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "账号密码只存在这台手机上（Base64 混淆，非加密）。换手机或清除数据后需要重新登录。",
+                        "账号密码只存于本机（未加密）。换手机或清除数据后需要重新登录。",
                         fontSize = 10.5.sp,
                         color = p.textWeak,
                         lineHeight = 16.sp,

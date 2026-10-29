@@ -211,8 +211,9 @@ data class DashLayout(
     fun arrange(defaults: List<String>): List<String> {
         val out = ArrayList<String>(defaults.size)
         // 问候块永远第一：它是「今天概览」的入口，不该被任何置顶卡片挤到下面去。
-        // 用户仍然可以在「自定义工作台」里把它隐藏掉（hidden 优先级更高）。
-        if ("hello" in defaults && "hello" !in hidden) out.add("hello")
+        // 且不可隐藏：打开「自定义工作台」的齿轮在它身上，藏了它用户就再也进不了面板，
+        // 所以 hidden 里的 hello 一律无视（老数据兼容）。
+        if ("hello" in defaults) out.add("hello")
         for (id in pinned + order) if (id in defaults && id !in out && id !in hidden) out.add(id)
         for (id in defaults) if (id !in out && id !in hidden) out.add(id)
         return out
@@ -230,6 +231,8 @@ data class DashLayout(
 
     /** 显示 / 隐藏：恢复显示进普通区末尾，隐藏进隐藏区末尾 */
     fun setVisible(id: String, visible: Boolean): DashLayout {
+        // 问候块不可隐藏：面板唯一入口（它的齿轮）会随卡消失，藏了就把用户锁在门外
+        if (id == "hello" && !visible) return this
         val p = pinned.toMutableList().also { it.remove(id) }
         val o = order.toMutableList().also { it.remove(id) }
         val h = hidden.toMutableList().also { it.remove(id) }
@@ -254,7 +257,8 @@ data class DashLayout(
     fun clean(): DashLayout {
         val seen = HashSet<String>()
         fun one(a: List<String>) = a.filter { it in Known && seen.add(it) }
-        return DashLayout(one(pinned), one(order), one(hidden))
+        // 问候块不可隐藏：老数据里 hidden=hello 的保存时一律清掉
+        return DashLayout(one(pinned), one(order), one(hidden).filter { it != "hello" })
     }
 
     /**

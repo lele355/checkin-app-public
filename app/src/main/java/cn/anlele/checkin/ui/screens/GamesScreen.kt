@@ -477,7 +477,6 @@ private fun LobbyContent(
         item {
             PageHeadCard(
                 title = "小游戏",
-                hint = "建一盘，把房间码发给朋友，他输码就能坐下。",
                 actions = {
                     SecondaryButton("设置", onClick = onOpenRules)
                     Spacer(Modifier.width(8.dp))
@@ -507,14 +506,6 @@ private fun LobbyContent(
                         enabled = !busy,
                         onPick = { onForbiddenChange(it == 1) },
                     )
-                    Text(
-                        if (newForbidden) "标准规则：黑方连成六个以上判负（白方长连仍算赢）。"
-                        else "自由规则：超过五连也算赢，没有禁手。",
-                        fontSize = 11.sp,
-                        color = p.textWeak,
-                        lineHeight = 15.sp,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
                     if (rules.moveTimeoutSec > 0 || rules.totalTimeoutSec > 0) {
                         Text(
                             "限时按你的默认设置：" + timeoutSummary(rules.moveTimeoutSec, rules.totalTimeoutSec),
@@ -526,8 +517,8 @@ private fun LobbyContent(
 
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        PrimaryButton("我先手", Modifier.weight(1f), icon = "plus", enabled = !busy) { onCreate(1) }
-                        SecondaryButton("我后手", Modifier.weight(1f), enabled = !busy) { onCreate(2) }
+                        PrimaryButton("新建对局（我先手）", Modifier.weight(1f), icon = "plus", enabled = !busy) { onCreate(1) }
+                        SecondaryButton("新建对局（我后手）", Modifier.weight(1f), enabled = !busy) { onCreate(2) }
                     }
                     Spacer(Modifier.height(14.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
