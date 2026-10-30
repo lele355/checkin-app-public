@@ -304,6 +304,8 @@ object Repo {
         val moveTimeoutSec: Int? = null,
         val totalTimeoutSec: Int? = null,
         val seats: List<GameSeatSpec>? = null,
+        /** 军旗玩法：open=明棋 / dark=暗棋 / fanqi=翻棋（缺省 = dark 现状兼容） */
+        val mode: String? = null,
     )
     @Serializable data class GameJoinReq(val code: String)
     @Serializable data class GameMoveReq(val x: Int, val y: Int)
@@ -353,10 +355,11 @@ object Repo {
         totalTimeoutSec: Int? = null,
         gameKey: String = "gomoku",
         seats: List<GameSeatSpec>? = null,
+        mode: String? = null,
     ): GameCreateDto = Api.post(
         "/games/$gameKey/rooms",
         enc(
-            GameCreateReq(side, opponent, aiLevel, size, forbidden, moveTimeoutSec, totalTimeoutSec, seats),
+            GameCreateReq(side, opponent, aiLevel, size, forbidden, moveTimeoutSec, totalTimeoutSec, seats, mode),
             GameCreateReq.serializer(),
         ),
     )
@@ -385,6 +388,14 @@ object Repo {
     /** 飞行棋走子（选第 p 号飞机） */
     suspend fun ludoMove(id: Int, p: Int, gameKey: String = "ludo"): GameRoomDto =
         Api.post("/games/$gameKey/rooms/$id/move", enc(GameLudoMoveReq(p), GameLudoMoveReq.serializer()))
+
+    // ---------------- 军旗明棋布阵 ----------------
+    @Serializable data class GameDeployPieceReq(val x: Int = 0, val y: Int = 0, val rank: String = "")
+    @Serializable data class GameDeployReq(val random: Boolean = false, val pieces: List<GameDeployPieceReq>? = null)
+
+    /** 军旗明棋布阵提交：{random:true} 或 {pieces:[{x,y,rank}×25]} */
+    suspend fun deployGame(id: Int, req: GameDeployReq, gameKey: String = "armychess"): GameRoomDto =
+        Api.post("/games/$gameKey/rooms/$id/deploy", enc(req, GameDeployReq.serializer()))
 
     suspend fun gameResign(id: Int, gameKey: String = "gomoku"): GameRoomDto =
         Api.post("/games/$gameKey/rooms/$id/resign")

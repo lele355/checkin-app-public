@@ -82,8 +82,11 @@ import cn.anlele.checkin.ui.components.SecondaryButton
 import cn.anlele.checkin.ui.components.SectionTitle
 import cn.anlele.checkin.ui.components.SiteSwitch
 import cn.anlele.checkin.ui.games.ArmyChessBoard
+import cn.anlele.checkin.ui.games.ArmyChessDeployPiece
 import cn.anlele.checkin.ui.games.ArmyChessLastMove
 import cn.anlele.checkin.ui.games.ArmyChessPiece
+import cn.anlele.checkin.ui.games.armyChessGenDeploy
+import cn.anlele.checkin.ui.games.armyChessTrySwap
 import cn.anlele.checkin.ui.games.FishGame
 import cn.anlele.checkin.ui.games.JungleBoard
 import cn.anlele.checkin.ui.games.JungleLastMove
@@ -156,6 +159,8 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
     // 大厅里「这一局」的规则：默认跟账号设置走，建房前可以临时改（只影响这一盘）
     var newSize by remember { mutableStateOf(15) }
     var newForbidden by remember { mutableStateOf(false) }
+    // 军旗玩法：明棋 / 暗棋 / 翻棋（建房显式带 mode；0=明棋 1=暗棋 2=翻棋）
+    var newArmyMode by remember { mutableIntStateOf(0) }
 
     // 飞行棋建房：人数 + 每座朋友/AI（ludoAi 对应 seat1..3）
     var ludoSeatCount by remember { mutableIntStateOf(2) }
@@ -226,7 +231,10 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
                 // 只覆盖盘面/禁手（这是用户在当前界面里刚选的）；
                 // 限时留空 = 由服务端按账号默认填，避免本地缓存过期
                 val key = gameKey ?: "gomoku"
-                val d = Repo.createGame(side, size = newSize, forbidden = newForbidden, gameKey = key)
+                val d = Repo.createGame(
+                    side, size = newSize, forbidden = newForbidden, gameKey = key,
+                    mode = if (key == "armychess") listOf("open", "dark", "fanqi")[newArmyMode.coerceIn(0, 2)] else null,
+                )
                 room = Repo.game(d.id, key)
             } catch (e: Exception) {
                 vm.toast(e.message ?: "建房失败")
@@ -242,7 +250,10 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
         scope.launch {
             try {
                 val key = gameKey ?: "gomoku"
-                val d = Repo.createGame(1, opponent = "ai", aiLevel = 2, gameKey = key)
+                val d = Repo.createGame(
+                    1, opponent = "ai", aiLevel = 2, gameKey = key,
+                    mode = if (key == "armychess") listOf("open", "dark", "fanqi")[newArmyMode.coerceIn(0, 2)] else null,
+                )
                 room = Repo.game(d.id, key)
             } catch (e: Exception) {
                 vm.toast(e.message ?: "建房失败")
@@ -354,6 +365,19 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
                 room = Repo.gameMoveFromTo(cur.id, fx, fy, tx, ty, key)
             } catch (e: Exception) {
                 vm.toast(e.message ?: "走子失败")
+            }
+        }
+    }
+
+    /** 军旗明棋布阵提交（pieces=自摆阵 / random=随机） */
+    fun deploy(req: Repo.GameDeployReq) {
+        val cur = room ?: return
+        scope.launch {
+            try {
+                room = Repo.deployGame(cur.id, req, gameKey ?: "armychess")
+            } catch (e: Exception) {
+                vm.toast(e.message ?: "布阵提交失败")
+                runCatching { room = Repo.game(cur.id, gameKey ?: "armychess") }
             }
         }
     }
@@ -476,12 +500,14 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
             rules = rules,
             newSize = newSize,
             newForbidden = newForbidden,
+            newArmyMode = newArmyMode,
             loading = loading,
             code = code,
             busy = busy,
             onCodeChange = { code = it.take(6) },
             onSizeChange = { newSize = it },
             onForbiddenChange = { newForbidden = it },
+            onArmyModeChange = { newArmyMode = it },
             onCreate = ::create,
             onCreateAi = ::onCreateAi,
             onJoinByCode = ::joinByCode,
@@ -511,6 +537,7 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
             onRoll = ::roll,
             onLudoMove = ::ludoMovePiece,
             onFromTo = ::fromToMove,
+            onDeploy = ::deploy,
         )
     }
 
@@ -668,12 +695,14 @@ private fun LobbyContent(
     rules: GameRuleDefaultsDto,
     newSize: Int,
     newForbidden: Boolean,
+    newArmyMode: Int = 0,
     loading: Boolean,
     code: String,
     busy: Boolean,
     onCodeChange: (String) -> Unit,
     onSizeChange: (Int) -> Unit,
     onForbiddenChange: (Boolean) -> Unit,
+    onArmyModeChange: (Int) -> Unit = {},
     onCreate: (Int) -> Unit,
     onCreateAi: () -> Unit = {},
     onJoinByCode: () -> Unit,
@@ -744,6 +773,16 @@ private fun LobbyContent(
                             }
                         }
                     } else {
+                        if (gameKey == "armychess") {
+                            OptionChips(
+                                title = "玩法",
+                                options = listOf("明棋", "暗棋", "翻棋"),
+                                selectedIndex = newArmyMode.coerceIn(0, 2),
+                                enabled = !busy,
+                                onPick = onArmyModeChange,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                        }
                         OptionChips(
                             title = "盘面",
                             options = BOARD_SIZES.map { "$it 路" },
@@ -1052,6 +1091,7 @@ private fun RoomContent(
     onRoll: () -> Unit = {},
     onLudoMove: (Int) -> Unit = {},
     onFromTo: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
+    onDeploy: (Repo.GameDeployReq) -> Unit = {},
 ) {
     val n = if (dto.size > 0) dto.size else 15
     val showClock = dto.moveTimeoutSec > 0 || dto.totalTimeoutSec > 0
@@ -1061,9 +1101,50 @@ private fun RoomContent(
     LaunchedEffect(dto.revision, dto.myTurn) { if (!dto.myTurn) selFrom = null }
     fun isOwnPiece(x: Int, y: Int): Boolean =
         dto.state?.pieces?.any { it.x == x && it.y == y && it.side == dto.mySide } == true
+
+    // 军旗明棋布阵：本地排布（客户端生成，确认后提交 deploy）——与网页 games.js 同流
+    val deployActive = dto.gameKey == "armychess" && dto.status == "setup" && dto.mySide > 0 &&
+        !(dto.state?.deployDone?.getOrNull(dto.mySide - 1) ?: false)
+    var deployPieces by remember(dto.id) { mutableStateOf<List<ArmyChessDeployPiece>?>(null) }
+    var deploySel by remember(dto.id) { mutableStateOf<Pair<Int, Int>?>(null) }
+    LaunchedEffect(dto.id, deployActive) {
+        if (deployActive && deployPieces == null) deployPieces = armyChessGenDeploy(dto.mySide)
+        if (!deployActive) { deployPieces = null; deploySel = null }
+    }
+
     val twoStep = dto.gameKey == "xiangqi" || dto.gameKey == "jungle" || dto.gameKey == "armychess"
     val boardTap: (Int, Int) -> Unit = { x, y ->
-        if (twoStep) {
+        if (deployActive && deployPieces != null) {
+            // 布阵期：点两格互换（约束不合法的交换不动）
+            val mine = deployPieces!!.any { it.x == x && it.y == y }
+            val cur = deploySel
+            when {
+                !mine -> {}
+                cur == null -> { deploySel = x to y }
+                cur.first == x && cur.second == y -> deploySel = null
+                else -> {
+                    val swapped = armyChessTrySwap(dto.mySide, deployPieces!!, cur.first, cur.second, x, y)
+                    if (swapped != null) deployPieces = swapped
+                    deploySel = null
+                }
+            }
+        } else if (dto.gameKey == "armychess" && dto.state?.mode == "fanqi") {
+            // 翻棋：点暗子 = 翻 {x,y}；点己方已翻子 = 两段式走子；阵营未定只翻子
+            val st = dto.state   // 由分支条件保证非空
+            val piece = st.pieces.firstOrNull { it.x == x && it.y == y }
+            val myColor = st.myColor
+            when {
+                piece != null && piece.hidden -> { selFrom = null; onMove(x, y) }
+                !st.settled -> {}
+                piece != null && piece.side == myColor -> { selFrom = x to y }
+                selFrom != null -> {
+                    val cur = selFrom!!
+                    selFrom = null
+                    onFromTo(cur.first, cur.second, x, y)
+                }
+                else -> { selFrom = null }
+            }
+        } else if (twoStep) {
             val cur = selFrom
             if (cur != null && !(cur.first == x && cur.second == y) && !isOwnPiece(x, y)) {
                 // 点非己方格 = 选终点 → 提交 {fx,fy,tx,ty}
@@ -1123,7 +1204,12 @@ private fun RoomContent(
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
                     Box(Modifier.fillMaxHeight().aspectRatio(1f)) {
-                        RoomBoard(dto, n, prefs, boardTap, selFrom)
+                        RoomBoard(
+                            dto, n, prefs, boardTap,
+                            selected = deploySel ?: selFrom,
+                            onLudoPiece = onLudoMove,
+                            deployPieces = if (deployActive) deployPieces else null,
+                        )
                     }
                 }
                 Column(
@@ -1132,6 +1218,15 @@ private fun RoomContent(
                 ) {
                     RoomInfo(dto, moveLeft, myLeft, oppLeft, low, showClock)
                     RoomLudoControls(dto, playing, onRoll, onLudoMove)
+                    RoomDeployControls(
+                        visible = deployActive,
+                        onRandom = { deployPieces = armyChessGenDeploy(dto.mySide); deploySel = null },
+                        onConfirm = {
+                            deployPieces?.let { ps ->
+                                onDeploy(Repo.GameDeployReq(pieces = ps.map { p -> Repo.GameDeployPieceReq(p.x, p.y, p.rank) }))
+                            }
+                        },
+                    )
                     Spacer(Modifier.height(8.dp))
                     RoomRules(dto, n)
                     Spacer(Modifier.height(12.dp))
@@ -1151,8 +1246,22 @@ private fun RoomContent(
                     Column(Modifier.fillMaxWidth()) {
                         RoomInfo(dto, moveLeft, myLeft, oppLeft, low, showClock)
                         Spacer(Modifier.height(8.dp))
-                        RoomBoard(dto, n, prefs, boardTap, selFrom)
+                        RoomBoard(
+                            dto, n, prefs, boardTap,
+                            selected = deploySel ?: selFrom,
+                            onLudoPiece = onLudoMove,
+                            deployPieces = if (deployActive) deployPieces else null,
+                        )
                         RoomLudoControls(dto, playing, onRoll, onLudoMove)
+                        RoomDeployControls(
+                            visible = deployActive,
+                            onRandom = { deployPieces = armyChessGenDeploy(dto.mySide); deploySel = null },
+                            onConfirm = {
+                                deployPieces?.let { ps ->
+                                    onDeploy(Repo.GameDeployReq(pieces = ps.map { p -> Repo.GameDeployPieceReq(p.x, p.y, p.rank) }))
+                                }
+                            },
+                        )
                         Spacer(Modifier.height(10.dp))
                         RoomRules(dto, n)
                         Spacer(Modifier.height(12.dp))
@@ -1248,6 +1357,8 @@ private fun RoomBoard(
     prefs: GameDisplayDto,
     onTap: (Int, Int) -> Unit,
     selected: Pair<Int, Int>? = null,
+    onLudoPiece: (Int) -> Unit = {},
+    deployPieces: List<ArmyChessDeployPiece>? = null,
 ) {
     val p = palette
     val st = dto.state
@@ -1275,17 +1386,29 @@ private fun RoomBoard(
         "ludo" -> LudoBoard(
             pieces = st?.pieces?.map { LudoPiece(it.side, it.p, it.pos) } ?: emptyList(),
             lastRoll = st?.lastRoll,
+            movable = st?.movable ?: emptyList(),
+            myTurn = dto.myTurn,
+            mySide = dto.mySide,
+            onTap = onLudoPiece,
         )
         "armychess" -> ArmyChessBoard(
-            pieces = st?.pieces?.map { ArmyChessPiece(it.x, it.y, it.side, it.rank?.jsonPrimitive?.contentOrNull, it.hidden) } ?: emptyList(),
+            pieces = if (deployPieces != null) {
+                // 布阵期：本地排布的己方军牌 + 对方（服务端视角化）
+                deployPieces.map { ArmyChessPiece(it.x, it.y, dto.mySide, it.rank, false) } +
+                    (st?.pieces?.filter { it.side != dto.mySide }
+                        ?.map { ArmyChessPiece(it.x, it.y, it.side, it.rank?.jsonPrimitive?.contentOrNull, it.hidden) } ?: emptyList())
+            } else {
+                st?.pieces?.map { ArmyChessPiece(it.x, it.y, it.side, it.rank?.jsonPrimitive?.contentOrNull, it.hidden) } ?: emptyList()
+            },
             lastMove = st?.lastMove?.let { ArmyChessLastMove(it.fx, it.fy, it.tx, it.ty) },
-            showCoord = prefs.showCoord, lastMark = prefs.lastMark, onTap = onTap,
+            showCoord = prefs.showCoord, lastMark = prefs.lastMark,
+            onTap = onTap, selected = selected,
         )
         else -> Text("此游戏的棋盘暂不支持", color = p.textSub, fontSize = 14.sp)
     }
 }
 
-/** 飞行棋掷骰 / 选机走子（轮到我才显示） */
+/** 飞行棋掷骰 / 选机走子（轮到我才显示；可走机号来自服务端 movable） */
 @Composable
 private fun RoomLudoControls(dto: GameRoomDto, playing: Boolean, onRoll: () -> Unit, onLudoMove: (Int) -> Unit) {
     if (dto.gameKey != "ludo" || !playing || !dto.myTurn) return
@@ -1293,9 +1416,25 @@ private fun RoomLudoControls(dto: GameRoomDto, playing: Boolean, onRoll: () -> U
     if (dto.state?.needRoll == true) {
         PrimaryButton("掷骰子", Modifier.fillMaxWidth()) { onRoll() }
     } else {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            (0..3).forEach { pidx -> SecondaryButton("飞机 ${pidx + 1}", Modifier.weight(1f)) { onLudoMove(pidx) } }
+        val movable = dto.state?.movable ?: emptyList()
+        if (movable.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                movable.forEach { pidx ->
+                    SecondaryButton("飞机 ${pidx + 1}", Modifier.weight(1f)) { onLudoMove(pidx) }
+                }
+            }
         }
+    }
+}
+
+/** 军旗明棋布阵按钮条：随机 / 确认（0.2：无解释文字，错误走 toast） */
+@Composable
+private fun RoomDeployControls(visible: Boolean, onRandom: () -> Unit, onConfirm: () -> Unit) {
+    if (!visible) return
+    Spacer(Modifier.height(10.dp))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SecondaryButton("随机布阵", Modifier.weight(1f), onClick = onRandom)
+        PrimaryButton("确认布阵", Modifier.weight(1f)) { onConfirm() }
     }
 }
 
@@ -1313,6 +1452,12 @@ private fun RoomRules(dto: GameRoomDto, n: Int) {
         }
         if (dto.gameKey == "ludo") {
             AppChip("${dto.players?.size ?: 2} 人")
+        }
+        if (dto.gameKey == "armychess" && dto.state?.mode == "fanqi") {
+            // 翻棋状态事实（与网页状态条同规）：阵营 / 执色 / 剩余暗子
+            AppChip(if (dto.state.settled) "翻子或走子" else "阵营未定")
+            if (dto.state.myColor > 0) AppChip(if (dto.state.myColor == 1) "你执红" else "你执蓝")
+            AppChip("暗子 ${dto.state.darkLeft}")
         }
         if (dto.gameKey == "reversi") {
             AppChip("黑 ${dto.state?.black ?: 0} · 白 ${dto.state?.white ?: 0}")

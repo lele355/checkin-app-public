@@ -318,12 +318,14 @@ data class DashLayout(
             else -> parse(el.toString())
         }
 
+        /** 复用的宽松解析器（ignoreUnknownKeys；每调用新建 Json 会有性能告警） */
+        private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true }
+
         /** 解析服务端存的 JSON（坏数据 / 空串 = 全默认布局，不能因此让工作台白屏） */
         fun parse(json: String?): DashLayout {
             if (json.isNullOrBlank()) return DashLayout()
             return runCatching {
-                Json { ignoreUnknownKeys = true; isLenient = true }
-                    .decodeFromString<DashLayout>(json).clean()
+                lenientJson.decodeFromString<DashLayout>(json).clean()
             }.getOrElse { DashLayout() }
         }
 
@@ -926,6 +928,18 @@ data class GameStateDto(
     val inCheck: Boolean = false,
     val lastRoll: Int? = null,
     val needRoll: Boolean = false,
+    /** 飞行棋：本 roll 下可走的机号（服务端算好，双端高亮直接消费） */
+    val movable: List<Int> = emptyList(),
+    /** 军旗：open=明棋 / dark=暗棋 / fanqi=翻棋 */
+    val mode: String? = null,
+    /** 军旗明棋布阵期：每方是否已部署 */
+    val deployDone: List<Boolean>? = null,
+    /** 翻棋：我执的颜色（1 红 / 2 蓝，0=阵营未定） */
+    val myColor: Int = 0,
+    /** 翻棋：阵营是否已定 */
+    val settled: Boolean = false,
+    /** 翻棋：剩余暗子数 */
+    val darkLeft: Int = 0,
     val black: Int = 0,
     val white: Int = 0,
     val passCount: Int = 0,
