@@ -28,6 +28,7 @@ import cn.anlele.checkin.ui.theme.popShape
 fun TutorialSheet(
     gameName: String,
     sections: List<TutorialSection>,
+    error: String? = null,
     onClose: () -> Unit,
 ) {
     val p = palette
@@ -47,6 +48,10 @@ fun TutorialSheet(
         ) {
             Text("$gameName · 规则", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = p.text)
             Spacer(Modifier.height(16.dp))
+
+            if (error != null) {
+                Text(error, fontSize = 14.sp, color = p.textSub)
+            }
 
             for (section in sections) {
                 Text(section.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = p.text)
@@ -122,7 +127,12 @@ val ReversiTutorial = listOf(
     )),
 )
 
-fun tutorialFor(gameKey: String): List<TutorialSection> = when (gameKey) {
+/**
+ * 本地兜底教程 —— 仅 gomoku/reversi 有副本（离线时用）。
+ * 其它游戏拉不到教程时显示「暂不可用」，绝不回落到错误教程（给错规则比没规则更糟）。
+ */
+fun tutorialFor(gameKey: String): List<TutorialSection>? = when (gameKey) {
+    "gomoku" -> GomokuTutorial
     "reversi" -> ReversiTutorial
-    else -> GomokuTutorial
+    else -> null  // 其它游戏不给本地兜底，由调用方处理 null = 暂不可用
 }

@@ -5,14 +5,21 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.sp
 
 /**
- * 象棋棋盘 —— 9×10 交叉点 + 楚河汉界。别画成格子棋（红线：交叉点是特征）。
+ * 象棋棋盘 —— 9×10 交叉点 + 楚河汉界 + 棋子带字。别画成格子棋（红线：交叉点是特征）。
  * 固定色不跟主题。对应网页 boards/xiangqi.js。
  */
 @Composable
@@ -24,7 +31,12 @@ fun XiangqiBoard(
     lastMark: Boolean = true,
     modifier: Modifier = Modifier,
     onTap: ((Int, Int) -> Unit)? = null,
+    selected: Pair<Int, Int>? = null,
 ) {
+    val measurer = rememberTextMeasurer()
+    // 红=帅仕相马车炮兵 / 黑=将士象马车炮卒（下标 = 服务端 PieceType）
+    val redNames = remember { arrayOf("", "帅", "仕", "相", "马", "车", "炮", "兵") }
+    val blackNames = remember { arrayOf("", "将", "士", "象", "马", "车", "炮", "卒") }
     Canvas(
         modifier = modifier
             .fillMaxWidth()
@@ -70,25 +82,44 @@ fun XiangqiBoard(
         drawLine(Color(0xFF5D4037), Offset(px(5), py(7)), Offset(px(3), py(9)), 1.2f)
 
         // 楚河汉界
-        drawRect(Color(0x808D6E63), topLeft = Offset(px(0), py(4) + ch * 0.1f), size = androidx.compose.ui.geometry.Size(px(8) - px(0), ch * 0.8f))
+        drawRect(Color(0x808D6E63), topLeft = Offset(px(0), py(4) + ch * 0.1f), size = Size(px(8) - px(0), ch * 0.8f))
 
-        // 棋子
+        val r = cw * 0.38f
+        // 两段式：选中起点高亮
+        if (selected != null) {
+            drawCircle(
+                Color(0xFF1A73E8), radius = r * 1.25f,
+                center = Offset(px(selected.first), py(selected.second)),
+                style = Stroke(width = 4f),
+            )
+        }
+
+        // 棋子（圆 + 汉字）
         for (p in pieces) {
-            drawCircle(Color(0xFFF5E6C8), radius = 22f, center = Offset(px(p.x), py(p.y)))
+            val center = Offset(px(p.x), py(p.y))
+            drawCircle(Color(0xFFF5E6C8), radius = r, center = center)
             drawCircle(
                 if (p.side == 1) Color(0xFFC62828) else Color(0xFF212121),
-                radius = 22f, center = Offset(px(p.x), py(p.y)),
-                style = Stroke(width = 2.5f),
+                radius = r, center = center, style = Stroke(width = 2.5f),
             )
+            val name = (if (p.side == 1) redNames else blackNames).getOrElse(p.type) { "?" }
+            val t = measurer.measure(name, TextStyle(fontSize = (r * 0.9f).sp, color = if (p.side == 1) Color(0xFFC62828) else Color(0xFF212121), fontWeight = FontWeight.Bold))
+            drawText(t, topLeft = Offset(center.x - t.size.width / 2f, center.y - t.size.height / 2f))
         }
 
         // 最后一手
         if (lastMark && lastMove != null) {
             drawCircle(
-                Color(0xFFFF5722), radius = 26f,
+                Color(0xFFFF5722), radius = r * 1.2f,
                 center = Offset(px(lastMove.tx), py(lastMove.ty)),
                 style = Stroke(width = 3f),
             )
+        }
+
+        // 被将军提示
+        if (inCheck) {
+            val t = measurer.measure("将军", TextStyle(fontSize = 20.sp, color = Color(0xFFC62828), fontWeight = FontWeight.Bold))
+            drawText(t, topLeft = Offset(w / 2f - t.size.width / 2f, h * 0.46f))
         }
     }
 }

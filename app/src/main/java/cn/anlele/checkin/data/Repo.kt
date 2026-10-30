@@ -303,9 +303,14 @@ object Repo {
         val forbidden: Boolean? = null,
         val moveTimeoutSec: Int? = null,
         val totalTimeoutSec: Int? = null,
+        val seats: List<GameSeatSpec>? = null,
     )
     @Serializable data class GameJoinReq(val code: String)
     @Serializable data class GameMoveReq(val x: Int, val y: Int)
+    @Serializable data class GameFromToReq(val fx: Int, val fy: Int, val tx: Int, val ty: Int)
+    @Serializable data class GameLudoMoveReq(val p: Int)
+    @Serializable data class GameScoreReq(val score: Int)
+    @Serializable data class GameSeatSpec(val isAi: Boolean = false)
 
     /** 单游戏杂项设置的响应：规则默认值 + 可选档位 */
     @Serializable
@@ -347,10 +352,11 @@ object Repo {
         moveTimeoutSec: Int? = null,
         totalTimeoutSec: Int? = null,
         gameKey: String = "gomoku",
+        seats: List<GameSeatSpec>? = null,
     ): GameCreateDto = Api.post(
         "/games/$gameKey/rooms",
         enc(
-            GameCreateReq(side, opponent, aiLevel, size, forbidden, moveTimeoutSec, totalTimeoutSec),
+            GameCreateReq(side, opponent, aiLevel, size, forbidden, moveTimeoutSec, totalTimeoutSec, seats),
             GameCreateReq.serializer(),
         ),
     )
@@ -368,6 +374,18 @@ object Repo {
     suspend fun gameMove(id: Int, x: Int, y: Int, gameKey: String = "gomoku"): GameRoomDto =
         Api.post("/games/$gameKey/rooms/$id/move", enc(GameMoveReq(x, y), GameMoveReq.serializer()))
 
+    /** 象棋/斗兽棋/军旗：起点+终点两段式走子 */
+    suspend fun gameMoveFromTo(id: Int, fx: Int, fy: Int, tx: Int, ty: Int, gameKey: String): GameRoomDto =
+        Api.post("/games/$gameKey/rooms/$id/move", enc(GameFromToReq(fx, fy, tx, ty), GameFromToReq.serializer()))
+
+    /** 飞行棋掷骰子 */
+    suspend fun gameRoll(id: Int, gameKey: String = "ludo"): GameRoomDto =
+        Api.post("/games/$gameKey/rooms/$id/roll")
+
+    /** 飞行棋走子（选第 p 号飞机） */
+    suspend fun ludoMove(id: Int, p: Int, gameKey: String = "ludo"): GameRoomDto =
+        Api.post("/games/$gameKey/rooms/$id/move", enc(GameLudoMoveReq(p), GameLudoMoveReq.serializer()))
+
     suspend fun gameResign(id: Int, gameKey: String = "gomoku"): GameRoomDto =
         Api.post("/games/$gameKey/rooms/$id/resign")
 
@@ -382,6 +400,14 @@ object Repo {
     @Serializable data class GameTutorialSection(val title: String = "", val paras: List<String> = emptyList())
     suspend fun gameTutorial(gameKey: String): List<GameTutorialSection> =
         Api.get("/games/$gameKey/tutorial", cache = false)
+
+    /** 单机记分：上报最高分（服务端幂等 max），返回 bestScore/rank */
+    suspend fun submitScore(gameKey: String, score: Int): GameScoreDto =
+        Api.post("/games/$gameKey/score", enc(GameScoreReq(score), GameScoreReq.serializer()))
+
+    /** 排行榜：前 10 + 我的最高分/名次 */
+    suspend fun leaderboard(gameKey: String): LeaderboardDto =
+        Api.get("/games/$gameKey/leaderboard", cache = false)
 
     suspend fun version(): VersionDto = Api.get("/app/version")
     suspend fun changelog(): ChangelogDto = Api.get("/app/changelog")

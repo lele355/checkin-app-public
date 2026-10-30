@@ -829,10 +829,29 @@ data class GameItemDto(
     val maxPlayers: Int = 2,
     val available: Boolean = true,
     val hasAi: Boolean = false,
+    val solo: Boolean = false,
+    val maxScore: Int = 0,
 )
 
 @Serializable
 data class GameCatalogDto(val games: List<GameItemDto> = emptyList())
+
+@Serializable
+data class GameScoreDto(val bestScore: Int = 0, val rank: Int = 0)
+
+@Serializable
+data class LeaderboardItemDto(
+    val rank: Int = 0,
+    val name: String = "",
+    val bestScore: Int = 0,
+    val updatedAt: String = "",
+)
+
+@Serializable
+data class LeaderboardDto(
+    val items: List<LeaderboardItemDto> = emptyList(),
+    val mine: GameScoreDto = GameScoreDto(),
+)
 
 
 /** 一局的全部状态 —— 与 /api/v1/games/{id} 的 data 一一对应，也用于大厅行 */
@@ -873,8 +892,99 @@ data class GameRoomDto(
     val opponentOnline: Boolean = false,
     val myTurn: Boolean = false,
     val canJoin: Boolean = false,
+    /** 飞行棋多座：每座 side/color/name/isAi/isMe/active/usedMs/online */
+    val players: List<LudoPlayerDto>? = null,
+    /** per-game 状态（state.events / state.pieces / state.lastMove 等） */
+    val state: GameStateDto? = null,
     val createdAt: String = "",
     val updatedAt: String = "",
+)
+
+@Serializable
+data class LudoPlayerDto(
+    val seat: Int = 0,
+    val side: Int = 0,
+    val color: String = "",
+    val name: String = "",
+    val isAi: Boolean = false,
+    val isMe: Boolean = false,
+    val active: Boolean = true,
+    val usedMs: Long = 0,
+    val online: Boolean = false,
+)
+
+/** per-game 状态快照（由服务端 BuildState 返回） */
+@Serializable
+data class GameStateDto(
+    val boardW: Int = 0,
+    val boardH: Int = 0,
+    val pieces: List<GamePieceDto> = emptyList(),
+    val squares: List<GameSquareDto> = emptyList(),
+    val events: List<GameEventDto>? = null,
+    val battleLog: List<GameBattleDto>? = null,
+    val lastMove: GameLastMoveDto? = null,
+    val inCheck: Boolean = false,
+    val lastRoll: Int? = null,
+    val needRoll: Boolean = false,
+    val black: Int = 0,
+    val white: Int = 0,
+    val passCount: Int = 0,
+)
+
+@Serializable
+data class GamePieceDto(
+    val x: Int = 0,
+    val y: Int = 0,
+    val side: Int = 0,
+    /** 兽级（斗兽棋=数字 1..8）/ 军衔（军旗=字符串 rank_xxx）—— 用 JsonElement 兼容两种 */
+    val rank: JsonElement? = null,
+    val type: Int = 0,
+    val hidden: Boolean = false,
+    val p: Int = 0,
+    val pos: Int = -1,
+)
+
+@Serializable
+data class GameSquareDto(
+    val x: Int = 0,
+    val y: Int = 0,
+    val kind: String = "normal",
+)
+
+@Serializable
+data class GameEventDto(
+    val t: String = "",
+    val s: Int = 0,
+    val x: Int? = null,
+    val y: Int? = null,
+    val fx: Int? = null,
+    val fy: Int? = null,
+    val tx: Int? = null,
+    val ty: Int? = null,
+    val v: Int? = null,
+    val p: Int? = null,
+    val att: String? = null,
+    val def: String? = null,
+    val result: String? = null,
+)
+
+@Serializable
+data class GameBattleDto(
+    val att: String? = null,
+    val def: String? = null,
+    val result: String = "",
+    val fx: Int? = null,
+    val fy: Int? = null,
+    val tx: Int? = null,
+    val ty: Int? = null,
+)
+
+@Serializable
+data class GameLastMoveDto(
+    val fx: Int = 0,
+    val fy: Int = 0,
+    val tx: Int = 0,
+    val ty: Int = 0,
 )
 
 @Serializable

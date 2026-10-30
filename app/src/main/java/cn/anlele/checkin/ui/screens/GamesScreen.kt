@@ -1,6 +1,7 @@
 package cn.anlele.checkin.ui.screens
 
 import android.os.SystemClock
+import android.content.res.Configuration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,14 +17,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -34,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -44,7 +50,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -71,8 +81,22 @@ import cn.anlele.checkin.ui.components.PrimaryButton
 import cn.anlele.checkin.ui.components.SecondaryButton
 import cn.anlele.checkin.ui.components.SectionTitle
 import cn.anlele.checkin.ui.components.SiteSwitch
+import cn.anlele.checkin.ui.games.ArmyChessBoard
+import cn.anlele.checkin.ui.games.ArmyChessLastMove
+import cn.anlele.checkin.ui.games.ArmyChessPiece
+import cn.anlele.checkin.ui.games.FishGame
+import cn.anlele.checkin.ui.games.JungleBoard
+import cn.anlele.checkin.ui.games.JungleLastMove
+import cn.anlele.checkin.ui.games.JunglePiece
+import cn.anlele.checkin.ui.games.LudoBoard
+import cn.anlele.checkin.ui.games.LudoPiece
+import cn.anlele.checkin.ui.games.MelonGame
 import cn.anlele.checkin.ui.games.ReversiBoard
+import cn.anlele.checkin.ui.games.TutorialSection
 import cn.anlele.checkin.ui.games.TutorialSheet
+import cn.anlele.checkin.ui.games.XiangqiBoard
+import cn.anlele.checkin.ui.games.XiangqiLastMove
+import cn.anlele.checkin.ui.games.XiangqiPiece
 import cn.anlele.checkin.ui.games.buildReversiBoard
 import cn.anlele.checkin.ui.games.tutorialFor
 import cn.anlele.checkin.ui.icons.AppIcons
@@ -132,6 +156,10 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
     // 大厅里「这一局」的规则：默认跟账号设置走，建房前可以临时改（只影响这一盘）
     var newSize by remember { mutableStateOf(15) }
     var newForbidden by remember { mutableStateOf(false) }
+
+    // 飞行棋建房：人数 + 每座朋友/AI（ludoAi 对应 seat1..3）
+    var ludoSeatCount by remember { mutableIntStateOf(2) }
+    var ludoAi by remember { mutableStateOf(listOf(false, false, false)) }
 
     // 设置对象变了（首次加载完 / 刚保存完）就把大厅选择重置回账号默认。
     // 用 data class 当 key：值没变就不会重启，用户在楼下挑好的盘面不会被无故冲掉。
@@ -224,6 +252,31 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
         }
     }
 
+    fun createLudo() {
+        if (busy) return
+        busy = true
+        scope.launch {
+            try {
+                val key = "ludo"
+                val d = if (ludoSeatCount <= 2) {
+                    // 2 人：seat1 是 AI 走人机，否则等朋友
+                    Repo.createGame(1, opponent = if (ludoAi.firstOrNull() == true) "ai" else "friend", gameKey = key)
+                } else {
+                    // 3~4 人：seats 含 seat0（房主），其余按 AI 开关
+                    val specs = (0 until ludoSeatCount).map { i ->
+                        cn.anlele.checkin.data.Repo.GameSeatSpec(isAi = if (i == 0) false else ludoAi.getOrElse(i - 1) { false })
+                    }
+                    Repo.createGame(1, gameKey = key, seats = specs)
+                }
+                room = Repo.game(d.id, key)
+            } catch (e: Exception) {
+                vm.toast(e.message ?: "建房失败")
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     fun joinByCode() {
         val c = code.trim().uppercase()
         if (c.isEmpty() || busy) return
@@ -271,8 +324,41 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
         }
     }
 
-    fun resign() {
+    fun roll() {
         val cur = room ?: return
+        scope.launch {
+            try {
+                room = Repo.gameRoll(cur.id, gameKey ?: "ludo")
+            } catch (e: Exception) {
+                vm.toast(e.message ?: "掷骰失败")
+            }
+        }
+    }
+
+    fun ludoMovePiece(p: Int) {
+        val cur = room ?: return
+        scope.launch {
+            try {
+                room = Repo.ludoMove(cur.id, p, gameKey ?: "ludo")
+            } catch (e: Exception) {
+                vm.toast(e.message ?: "走子失败")
+            }
+        }
+    }
+
+    fun fromToMove(fx: Int, fy: Int, tx: Int, ty: Int) {
+        val cur = room ?: return
+        val key = gameKey ?: return
+        scope.launch {
+            try {
+                room = Repo.gameMoveFromTo(cur.id, fx, fy, tx, ty, key)
+            } catch (e: Exception) {
+                vm.toast(e.message ?: "走子失败")
+            }
+        }
+    }
+
+    fun resign() {        val cur = room ?: return
         scope.launch {
             try {
                 room = Repo.gameResign(cur.id, gameKey ?: "gomoku")
@@ -373,11 +459,17 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
     }
 
     val cur = room
+    val soloGame = gameKey?.let { k -> catalog.games.find { it.key == k && it.solo } }
     when {
         gameKey == null -> GamesListContent(
             catalog = catalog,
             onPick = { gameKey = it },
             onOpenDisplay = { displayOpen = true },
+        )
+        soloGame != null -> SoloContent(
+            gameKey = soloGame.key,
+            maxScore = soloGame.maxScore,
+            onBack = { gameKey = null },
         )
         cur == null -> LobbyContent(
             lobby = lobby,
@@ -399,6 +491,12 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
             onOpenRules = { rulesOpen = true },
             onOpenTutorial = { tutorialOpen = true },
             onLeave = { id -> scope.launch { runCatching { Repo.gameLeave(id, gameKey ?: "gomoku") }; refreshLobby() } },
+            gameKey = gameKey ?: "gomoku",
+            ludoSeatCount = ludoSeatCount,
+            ludoAi = ludoAi,
+            onLudoSeatCount = { ludoSeatCount = it },
+            onLudoAiToggle = { i, v -> ludoAi = ludoAi.toMutableList().also { it[i] = v } },
+            onCreateLudo = ::createLudo,
         )
         else -> RoomContent(
             dto = cur,
@@ -410,6 +508,9 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
             onLeaveAsk = { confirmLeave = true },
             onOpenRules = { rulesOpen = true },
             onOpenTutorial = { tutorialOpen = true },
+            onRoll = ::roll,
+            onLudoMove = ::ludoMovePiece,
+            onFromTo = ::fromToMove,
         )
     }
 
@@ -454,9 +555,29 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
     if (tutorialOpen) {
         val gk = gameKey ?: "gomoku"
         val gName = catalog.games.find { it.key == gk }?.name ?: "游戏"
+        // 方案 A：优先调服务端教程（单一事实源），失败时用本地兜底（仅 gomoku/reversi）
+        val tutorialState = produceState<Pair<List<TutorialSection>?, String?>>(null to null, gk, tutorialOpen) {
+            if (!tutorialOpen) return@produceState
+            try {
+                val sections = Repo.gameTutorial(gk).map {
+                    TutorialSection(title = it.title, paras = it.paras)
+                }
+                value = sections to null
+            } catch (_: Exception) {
+                // 拉不到教程：用本地兜底（仅 gomoku/reversi），其它游戏显示暂不可用
+                val fallback = tutorialFor(gk)
+                if (fallback != null) {
+                    value = fallback to null
+                } else {
+                    value = null to "教程暂不可用"
+                }
+            }
+        }
+        val (sections, errMsg) = tutorialState.value
         TutorialSheet(
             gameName = gName,
-            sections = tutorialFor(gk),
+            sections = sections ?: emptyList(),
+            error = errMsg,
             onClose = { tutorialOpen = false },
         )
     }
@@ -523,6 +644,22 @@ private fun GamesListContent(
     }
 }
 
+// ---------------- 单机游戏 ----------------
+
+/** 单机游戏画面：跳过建房/大厅/对局，直达玩法。 */
+@Composable
+private fun SoloContent(
+    gameKey: String,
+    maxScore: Int,
+    onBack: () -> Unit,
+) {
+    when (gameKey) {
+        "melon" -> MelonGame(maxScore = maxScore, onBack = onBack)
+        "fish" -> FishGame(maxScore = maxScore, onBack = onBack)
+        else -> MelonGame(maxScore = maxScore, onBack = onBack)
+    }
+}
+
 // ---------------- 大厅 ----------------
 
 @Composable
@@ -546,6 +683,12 @@ private fun LobbyContent(
     onOpenRules: () -> Unit,
     onOpenTutorial: () -> Unit = {},
     onLeave: (Int) -> Unit,
+    gameKey: String = "gomoku",
+    ludoSeatCount: Int = 2,
+    ludoAi: List<Boolean> = listOf(false, false, false),
+    onLudoSeatCount: (Int) -> Unit = {},
+    onLudoAiToggle: (Int, Boolean) -> Unit = { _, _ -> },
+    onCreateLudo: () -> Unit = {},
 ) {
     val p = palette
     val mine = lobby.items.filter { it.mySide != 0 }
@@ -560,58 +703,92 @@ private fun LobbyContent(
             PageHeadCard(
                 title = "小游戏",
                 actions = {
-                    SecondaryButton("返回", onClick = onBack)
-                    Spacer(Modifier.width(8.dp))
-                    SecondaryButton("规则", onClick = onOpenTutorial)
+                    SecondaryButton("刷新", onClick = onRefresh)
                     Spacer(Modifier.width(8.dp))
                     SecondaryButton("设置", onClick = onOpenRules)
                     Spacer(Modifier.width(8.dp))
-                    SecondaryButton("刷新", onClick = onRefresh)
+                    SecondaryButton("返回", onClick = onBack)
                 },
             )
         }
 
+        // 新建对局：参数分组（人数/对手 · 盘面 · 规则 · 限时），主按钮突出
         item {
             AppCard(Modifier.fillMaxWidth()) {
-                // AppCard 的 content 是 Box —— 多个子项必须自己包 Column，否则全叠在左上角
                 Column(Modifier.fillMaxWidth()) {
-                    SectionTitle("新开一盘")
-                    Spacer(Modifier.height(10.dp))
+                    SectionTitle("新建对局", trailing = { SecondaryButton("玩法", onClick = onOpenTutorial) })
+                    Spacer(Modifier.height(4.dp))
 
-                    OptionChips(
-                        title = "盘面",
-                        options = BOARD_SIZES.map { "$it 路" },
-                        selectedIndex = BOARD_SIZES.indexOf(newSize).coerceAtLeast(0),
-                        enabled = !busy,
-                        onPick = { onSizeChange(BOARD_SIZES[it]) },
-                    )
-                    OptionChips(
-                        title = "规则",
-                        options = listOf("自由规则", "标准规则"),
-                        selectedIndex = if (newForbidden) 1 else 0,
-                        enabled = !busy,
-                        onPick = { onForbiddenChange(it == 1) },
-                    )
-                    if (rules.moveTimeoutSec > 0 || rules.totalTimeoutSec > 0) {
-                        Text(
-                            "限时按你的默认设置：" + timeoutSummary(rules.moveTimeoutSec, rules.totalTimeoutSec),
-                            fontSize = 11.sp,
-                            color = p.textWeak,
-                            modifier = Modifier.padding(top = 4.dp),
+                    if (gameKey == "ludo") {
+                        OptionChips(
+                            title = "人数",
+                            options = listOf("2 人", "3 人", "4 人"),
+                            selectedIndex = (ludoSeatCount - 2).coerceIn(0, 2),
+                            enabled = !busy,
+                            onPick = { onLudoSeatCount(it + 2) },
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text("座位", fontSize = 12.sp, color = p.textSub, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.height(7.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            AppChip("我 · 红")
+                            (1 until ludoSeatCount).forEach { i ->
+                                val colorName = when (i) { 1 -> "黄"; 2 -> "蓝"; else -> "绿" }
+                                val isAi = ludoAi.getOrElse(i - 1) { false }
+                                AppChip("${i + 1} 号 · $colorName · " + if (isAi) "AI" else "朋友", selected = isAi) {
+                                    if (!busy) onLudoAiToggle(i - 1, !isAi)
+                                }
+                            }
+                        }
+                    } else {
+                        OptionChips(
+                            title = "盘面",
+                            options = BOARD_SIZES.map { "$it 路" },
+                            selectedIndex = BOARD_SIZES.indexOf(newSize).coerceAtLeast(0),
+                            enabled = !busy,
+                            onPick = { onSizeChange(BOARD_SIZES[it]) },
+                        )
+                        OptionChips(
+                            title = "规则",
+                            options = listOf("自由规则", "标准规则"),
+                            selectedIndex = if (newForbidden) 1 else 0,
+                            enabled = !busy,
+                            onPick = { onForbiddenChange(it == 1) },
                         )
                     }
 
-                    Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        PrimaryButton("新建对局（我先手）", Modifier.weight(1f), icon = "plus", enabled = !busy) { onCreate(1) }
-                        SecondaryButton("新建对局（我后手）", Modifier.weight(1f), enabled = !busy) { onCreate(2) }
-                    }
-                    // 人机对战（黑白棋等支持 AI 的游戏）
-                    if (lobby.items.isEmpty()) {
-                        Spacer(Modifier.height(8.dp))
-                        SecondaryButton("人机对战", Modifier.fillMaxWidth(), enabled = !busy) { onCreateAi() }
-                    }
+                    // 限时：只读事实标签（不写解释句，守 0.2）
+                    Spacer(Modifier.height(10.dp))
+                    Text("限时", fontSize = 12.sp, color = p.textSub, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(7.dp))
+                    AppChip(timeoutSummary(rules.moveTimeoutSec, rules.totalTimeoutSec))
+
                     Spacer(Modifier.height(14.dp))
+                    if (gameKey == "ludo") {
+                        PrimaryButton("新建对局", Modifier.fillMaxWidth(), icon = "plus", enabled = !busy) { onCreateLudo() }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            PrimaryButton("新建对局（我先手）", Modifier.weight(1f), icon = "plus", enabled = !busy) { onCreate(1) }
+                            SecondaryButton("我后手", Modifier.weight(0.6f), enabled = !busy) { onCreate(2) }
+                        }
+                        if (lobby.items.isEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            SecondaryButton("人机对战", Modifier.fillMaxWidth(), enabled = !busy) { onCreateAi() }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 加入房间：次操作独立成卡，不跟建房混
+        item {
+            AppCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) {
+                    SectionTitle("加入房间")
+                    Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.weight(1f)) {
                             AppField(
@@ -776,7 +953,7 @@ private fun GomokuRulesSheet(
 
     PickerSheetShell(onDismiss = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 22.dp)) {
-            Text("五子棋设置", fontSize = 16.sp, color = p.text, fontWeight = FontWeight.SemiBold)
+            Text("五子棋 · 默认规则", fontSize = 16.sp, color = p.text, fontWeight = FontWeight.SemiBold)
 
             OptionChips(
                 title = "盘面",
@@ -872,28 +1049,43 @@ private fun RoomContent(
     onLeaveAsk: () -> Unit,
     onOpenRules: () -> Unit,
     onOpenTutorial: () -> Unit = {},
+    onRoll: () -> Unit = {},
+    onLudoMove: (Int) -> Unit = {},
+    onFromTo: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
 ) {
-    val p = palette
     val n = if (dto.size > 0) dto.size else 15
     val showClock = dto.moveTimeoutSec > 0 || dto.totalTimeoutSec > 0
 
-    // 本地倒数：不靠服务端每 250ms 推一次，拿到快照那一刻记下基准，之后自己算。
-    // tick 只是用来触发重组，真正的数值由 baseAt + 当前时刻算出来。
+    // 两段式走子（象棋/斗兽棋/军旗）：选起点 → 高亮 → 选终点
+    var selFrom by remember(dto.id) { mutableStateOf<Pair<Int, Int>?>(null) }
+    LaunchedEffect(dto.revision, dto.myTurn) { if (!dto.myTurn) selFrom = null }
+    fun isOwnPiece(x: Int, y: Int): Boolean =
+        dto.state?.pieces?.any { it.x == x && it.y == y && it.side == dto.mySide } == true
+    val twoStep = dto.gameKey == "xiangqi" || dto.gameKey == "jungle" || dto.gameKey == "armychess"
+    val boardTap: (Int, Int) -> Unit = { x, y ->
+        if (twoStep) {
+            val cur = selFrom
+            if (cur != null && !(cur.first == x && cur.second == y) && !isOwnPiece(x, y)) {
+                // 点非己方格 = 选终点 → 提交 {fx,fy,tx,ty}
+                onFromTo(cur.first, cur.second, x, y)
+                selFrom = null
+            } else {
+                // 点己方子 = 选/改选起点（含首选与改选）
+                selFrom = if (isOwnPiece(x, y)) x to y else null
+            }
+        } else {
+            onMove(x, y)
+        }
+    }
+
+    // 本地倒数：拿到快照记基准，之后自己算；tick 只用来触发重组。
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(dto.id, dto.status) {
         if (dto.status != "playing") return@LaunchedEffect
-        while (true) {
-            delay(250)
-            tick++
-        }
+        while (true) { delay(250); tick++ }
     }
     val baseAt = remember(dto.revision) { SystemClock.elapsedRealtime() }
-    // tick 只用来建立重组订阅；时间一律现取钟表，别拿 tick * 间隔 攒（会越走越偏）。
-    // 乘 0L 是为了让编译器别把这次读取优化掉，同时不留「未使用变量」告警。
     val elapsed = SystemClock.elapsedRealtime() - baseAt + tick * 0L
-
-    // 服务端只给「该走棋的一方」计时（没轮到你就不扣），所以这里也不能三方一起倒数，
-    // 否则对手/自己的数字会先掉下去再被下一次轮询拉回来，看着像在乱跳。
     val playing = dto.status == "playing"
     fun remain(v: Long?, running: Boolean): Long? = v?.let { if (running) max(0L, it - elapsed) else it }
     val moveLeft = remain(dto.moveRemainMs, playing)
@@ -901,120 +1093,248 @@ private fun RoomContent(
     val oppLeft = remain(dto.oppRemainMs, playing && !dto.myTurn)
     val low = (moveLeft != null && moveLeft < 10_000) || (myLeft != null && myLeft < 60_000)
 
-    LazyColumn(
-        Modifier.fillMaxSize().navigationBarsPadding(),
-        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        item {
-            PageHeadCard(
-                title = "五子棋",
-                hint = "房间 ${dto.code}",
-                actions = {
-                    SecondaryButton("规则", onClick = onOpenTutorial)
-                    Spacer(Modifier.width(8.dp))
-                    SecondaryButton("设置", onClick = onOpenRules)
-                    Spacer(Modifier.width(8.dp))
-                    SecondaryButton("回大厅", onClick = onBack)
-                },
-            )
-        }
+    // 横屏左右分栏：只对这四款棋类生效（五子棋/黑白棋竖屏即可）
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val split = dto.gameKey == "xiangqi" || dto.gameKey == "jungle" ||
+        dto.gameKey == "armychess" || dto.gameKey == "ludo"
 
-        item {
-            AppCard(Modifier.fillMaxWidth()) {
-                // AppCard 的 content 是 Box —— 多个子项必须自己包 Column，否则全叠在左上角
-                Column(Modifier.fillMaxWidth()) {
-                    // 双方 + 状态
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        PlayerPill(
-                            name = if (dto.hostSide == 1) dto.hostName else dto.guestName.ifBlank { "等朋友" },
-                            black = true,
-                            isMe = dto.mySide == 1,
-                            active = dto.status == "playing" && dto.turn == 1,
-                        )
-                        Text("vs", fontSize = 11.5.sp, color = p.textWeak, modifier = Modifier.padding(horizontal = 8.dp))
-                        PlayerPill(
-                            name = if (dto.hostSide == 1) dto.guestName.ifBlank { "等朋友" } else dto.hostName,
-                            black = false,
-                            isMe = dto.mySide == 2,
-                            active = dto.status == "playing" && dto.turn == 2,
-                        )
+    val head: @Composable () -> Unit = {
+        PageHeadCard(
+            title = gameTitle(dto.gameKey),
+            hint = "房间 ${dto.code}",
+            actions = {
+                SecondaryButton("规则", onClick = onOpenTutorial)
+                Spacer(Modifier.width(8.dp))
+                SecondaryButton("设置", onClick = onOpenRules)
+                Spacer(Modifier.width(8.dp))
+                SecondaryButton("回大厅", onClick = onBack)
+            },
+        )
+    }
+
+    if (landscape && split) {
+        // 横屏：棋盘居左（按高度限成正方形，绝不裁切），信息/计时/操作居右
+        Column(
+            Modifier.fillMaxSize().navigationBarsPadding()
+                .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
+        ) {
+            head()
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
+                    Box(Modifier.fillMaxHeight().aspectRatio(1f)) {
+                        RoomBoard(dto, n, prefs, boardTap, selFrom)
                     }
-
-                    Spacer(Modifier.height(9.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            statusText(dto),
-                            modifier = Modifier.weight(1f),
-                            fontSize = 13.sp,
-                            color = if (dto.myTurn) p.accent else p.textSub,
-                            fontWeight = if (dto.myTurn) FontWeight.SemiBold else FontWeight.Normal,
-                        )
-                        if (showClock) {
-                            // 剩余时间：本步 / 我 / 对手，单位的取舍跟网页端一致
-                            val parts = buildList {
-                                if (moveLeft != null && dto.status == "playing") add("本步 " + fmtMs(moveLeft))
-                                myLeft?.let { add("我 " + fmtMs(it)) }
-                                oppLeft?.let { add("对手 " + fmtMs(it)) }
-                            }.joinToString(" · ")
-                            if (parts.isNotBlank()) {
-                                Text(
-                                    parts,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (low) Color(0xFFD93025) else p.accentStrong,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(999.dp))
-                                        .background(if (low) Color(0x1FD93025) else p.accentSoft)
-                                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                                )
-                            }
-                        }
-                    }
-
+                }
+                Column(
+                    Modifier.widthIn(min = 220.dp, max = 320.dp).fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    RoomInfo(dto, moveLeft, myLeft, oppLeft, low, showClock)
+                    RoomLudoControls(dto, playing, onRoll, onLudoMove)
                     Spacer(Modifier.height(8.dp))
-                    Board(dto = dto, n = n, prefs = prefs, onTap = onMove)
-
-                    Spacer(Modifier.height(10.dp))
-                    // 这一局的规则（建房时定下的，改了账号设置也不会变）
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        AppChip("${n}×${n}")
-                        AppChip(if (dto.forbidden) "标准规则" else "自由规则")
-                        if (dto.moveTimeoutSec > 0) AppChip("单步 " + moveTimeoutLabel(dto.moveTimeoutSec))
-                        if (dto.totalTimeoutSec > 0) AppChip("总用时 ${dto.totalTimeoutSec / 60} 分钟")
-                    }
-
+                    RoomRules(dto, n)
                     Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (dto.mySide != 0 && dto.status == "playing") {
-                            SecondaryButton("认输", danger = true, onClick = onResign)
-                        }
-                        if (dto.mySide != 0 && dto.status == "finished") {
-                            PrimaryButton("再来一局", onClick = onRematch)
-                            SecondaryButton("收摊", onClick = onLeaveAsk)
-                        }
-                        if (dto.status == "waiting" && dto.mySide != 0) {
-                            SecondaryButton("解散", danger = true, onClick = onLeaveAsk)
-                        }
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        buildString {
-                            append("点交叉点落子。先连成五个（含斜线）就赢。")
-                            if (dto.forbidden) append("标准规则：黑方连成六个以上判负。")
-                            else append("超过五连也算赢（自由规则）。")
-                            if (prefs.tapConfirm) append("已开「落子确认」：第一下预览，再点同一处才落子。")
-                        },
-                        fontSize = 11.5.sp,
-                        color = p.textWeak,
-                        lineHeight = 17.sp,
-                    )
+                    RoomActions(dto, onResign, onRematch, onLeaveAsk)
                 }
             }
+        }
+    } else {
+        LazyColumn(
+            Modifier.fillMaxSize().navigationBarsPadding(),
+            contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item { head() }
+            item {
+                AppCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth()) {
+                        RoomInfo(dto, moveLeft, myLeft, oppLeft, low, showClock)
+                        Spacer(Modifier.height(8.dp))
+                        RoomBoard(dto, n, prefs, boardTap, selFrom)
+                        RoomLudoControls(dto, playing, onRoll, onLudoMove)
+                        Spacer(Modifier.height(10.dp))
+                        RoomRules(dto, n)
+                        Spacer(Modifier.height(12.dp))
+                        RoomActions(dto, onResign, onRematch, onLeaveAsk)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun gameTitle(key: String): String = when (key) {
+    "gomoku" -> "五子棋"
+    "reversi" -> "黑白棋"
+    "jungle" -> "斗兽棋"
+    "xiangqi" -> "象棋"
+    "ludo" -> "飞行棋"
+    "armychess" -> "军旗"
+    else -> "小游戏"
+}
+
+/** 双方/多座 + 状态行（横竖屏共用） */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RoomInfo(
+    dto: GameRoomDto,
+    moveLeft: Long?,
+    myLeft: Long?,
+    oppLeft: Long?,
+    low: Boolean,
+    showClock: Boolean,
+) {
+    val p = palette
+    val plist = dto.players
+    if (dto.gameKey == "ludo" && plist != null) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            plist.forEach { pl -> LudoSeatChip(pl, isTurn = dto.status == "playing" && dto.turn == pl.side) }
+        }
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PlayerPill(
+                name = if (dto.hostSide == 1) dto.hostName else dto.guestName.ifBlank { "等朋友" },
+                black = true, isMe = dto.mySide == 1, active = dto.status == "playing" && dto.turn == 1,
+            )
+            Text("vs", fontSize = 11.5.sp, color = p.textWeak, modifier = Modifier.padding(horizontal = 8.dp))
+            PlayerPill(
+                name = if (dto.hostSide == 1) dto.guestName.ifBlank { "等朋友" } else dto.hostName,
+                black = false, isMe = dto.mySide == 2, active = dto.status == "playing" && dto.turn == 2,
+            )
+        }
+    }
+
+    Spacer(Modifier.height(9.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            statusText(dto),
+            modifier = Modifier.weight(1f),
+            fontSize = 13.sp,
+            color = if (dto.myTurn) p.accent else p.textSub,
+            fontWeight = if (dto.myTurn) FontWeight.SemiBold else FontWeight.Normal,
+        )
+        if (showClock) {
+            val parts = buildList {
+                if (moveLeft != null && dto.status == "playing") add("本步 " + fmtMs(moveLeft))
+                myLeft?.let { add("我 " + fmtMs(it)) }
+                oppLeft?.let { add("对手 " + fmtMs(it)) }
+            }.joinToString(" · ")
+            if (parts.isNotBlank()) {
+                Text(
+                    parts,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (low) Color(0xFFD93025) else p.accentStrong,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (low) Color(0x1FD93025) else p.accentSoft)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+        }
+    }
+}
+
+/** 按 gameKey 分发棋盘（不回落到五子棋盘 —— 画错棋盘比不画更糟） */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RoomBoard(
+    dto: GameRoomDto,
+    n: Int,
+    prefs: GameDisplayDto,
+    onTap: (Int, Int) -> Unit,
+    selected: Pair<Int, Int>? = null,
+) {
+    val p = palette
+    val st = dto.state
+    when (dto.gameKey) {
+        "gomoku" -> Board(dto = dto, n = n, prefs = prefs, onTap = onTap)
+        "reversi" -> ReversiBoard(
+            board = buildReversiBoard((st?.events ?: emptyList()).map { e ->
+                buildMap<String, Any?> { put("t", e.t); put("s", e.s); put("x", e.x); put("y", e.y) }
+            }),
+            lastMove = st?.lastMove?.let { it.tx to it.ty },
+            showCoord = prefs.showCoord, lastMark = prefs.lastMark,
+            mySide = dto.mySide, myTurn = dto.myTurn, onTap = onTap,
+        )
+        "jungle" -> JungleBoard(
+            pieces = st?.pieces?.map { JunglePiece(it.x, it.y, it.side, it.rank?.jsonPrimitive?.intOrNull ?: 0) } ?: emptyList(),
+            lastMove = st?.lastMove?.let { JungleLastMove(it.fx, it.fy, it.tx, it.ty) },
+            showCoord = prefs.showCoord, lastMark = prefs.lastMark, onTap = onTap,
+        )
+        "xiangqi" -> XiangqiBoard(
+            pieces = st?.pieces?.map { XiangqiPiece(it.x, it.y, it.side, it.type) } ?: emptyList(),
+            lastMove = st?.lastMove?.let { XiangqiLastMove(it.fx, it.fy, it.tx, it.ty) },
+            inCheck = st?.inCheck ?: false,
+            showCoord = prefs.showCoord, lastMark = prefs.lastMark, onTap = onTap,
+        )
+        "ludo" -> LudoBoard(
+            pieces = st?.pieces?.map { LudoPiece(it.side, it.p, it.pos) } ?: emptyList(),
+            lastRoll = st?.lastRoll,
+        )
+        "armychess" -> ArmyChessBoard(
+            pieces = st?.pieces?.map { ArmyChessPiece(it.x, it.y, it.side, it.rank?.jsonPrimitive?.contentOrNull, it.hidden) } ?: emptyList(),
+            lastMove = st?.lastMove?.let { ArmyChessLastMove(it.fx, it.fy, it.tx, it.ty) },
+            showCoord = prefs.showCoord, lastMark = prefs.lastMark, onTap = onTap,
+        )
+        else -> Text("此游戏的棋盘暂不支持", color = p.textSub, fontSize = 14.sp)
+    }
+}
+
+/** 飞行棋掷骰 / 选机走子（轮到我才显示） */
+@Composable
+private fun RoomLudoControls(dto: GameRoomDto, playing: Boolean, onRoll: () -> Unit, onLudoMove: (Int) -> Unit) {
+    if (dto.gameKey != "ludo" || !playing || !dto.myTurn) return
+    Spacer(Modifier.height(10.dp))
+    if (dto.state?.needRoll == true) {
+        PrimaryButton("掷骰子", Modifier.fillMaxWidth()) { onRoll() }
+    } else {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            (0..3).forEach { pidx -> SecondaryButton("飞机 ${pidx + 1}", Modifier.weight(1f)) { onLudoMove(pidx) } }
+        }
+    }
+}
+
+/** 这一局的规则 chips（建房快照，改了账号设置也不变） */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RoomRules(dto: GameRoomDto, n: Int) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (dto.gameKey == "gomoku") {
+            AppChip("${n}×${n}")
+            AppChip(if (dto.forbidden) "标准规则" else "自由规则")
+        }
+        if (dto.gameKey == "ludo") {
+            AppChip("${dto.players?.size ?: 2} 人")
+        }
+        if (dto.gameKey == "reversi") {
+            AppChip("黑 ${dto.state?.black ?: 0} · 白 ${dto.state?.white ?: 0}")
+        }
+        if (dto.moveTimeoutSec > 0) AppChip("单步 " + moveTimeoutLabel(dto.moveTimeoutSec))
+        if (dto.totalTimeoutSec > 0) AppChip("总用时 ${dto.totalTimeoutSec / 60} 分钟")
+    }
+}
+
+/** 认输 / 再来一局 / 解散 */
+@Composable
+private fun RoomActions(dto: GameRoomDto, onResign: () -> Unit, onRematch: () -> Unit, onLeaveAsk: () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (dto.mySide != 0 && dto.status == "playing") {
+            SecondaryButton("认输", danger = true, onClick = onResign)
+        }
+        if (dto.mySide != 0 && dto.status == "finished") {
+            PrimaryButton("再来一局", onClick = onRematch)
+            SecondaryButton("收摊", onClick = onLeaveAsk)
+        }
+        if (dto.status == "waiting" && dto.mySide != 0) {
+            SecondaryButton("解散", danger = true, onClick = onLeaveAsk)
         }
     }
 }
@@ -1048,6 +1368,39 @@ private fun PlayerPill(name: String, black: Boolean, isMe: Boolean, active: Bool
             fontSize = 12.5.sp,
             color = p.text,
             fontWeight = if (isMe) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+        )
+    }
+}
+
+/** 飞行棋座位小标：颜色点 + 名字 + 出局/轮到标记 */
+@Composable
+private fun LudoSeatChip(pl: cn.anlele.checkin.data.LudoPlayerDto, isTurn: Boolean) {
+    val p = palette
+    val dotColor = when (pl.color) {
+        "yellow" -> Color(0xFFF9A825)
+        "blue" -> Color(0xFF1565C0)
+        "green" -> Color(0xFF2E7D32)
+        else -> Color(0xFFC62828)
+    }
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (isTurn) p.accentSoft else p.cardSoft)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(12.dp).background(dotColor, CircleShape))
+        Spacer(Modifier.width(6.dp))
+        val label = (pl.name.ifBlank { "空位" }) +
+            (if (!pl.active) " ✗" else "") +
+            (if (isTurn) " ●" else "") +
+            (if (pl.isAi) " AI" else "")
+        Text(
+            label,
+            fontSize = 12.5.sp,
+            color = if (pl.active) p.text else p.textWeak,
+            fontWeight = if (pl.isMe) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1,
         )
     }

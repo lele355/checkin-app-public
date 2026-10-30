@@ -24,8 +24,8 @@ android {
         applicationId = "cn.anlele.checkin"
         minSdk = 24
         targetSdk = 36
-        versionCode = 31
-        versionName = "2.7.0"
+        versionCode = 35
+        versionName = "2.8.3"
         // 接口地址：正式包走线上；调试包走宿主机（模拟器用 10.0.2.2 访问 127.0.0.1）
         buildConfigField("String", "API_BASE", "\"https://example.com/api/v1\"")
     }
