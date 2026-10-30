@@ -123,6 +123,10 @@ fun MainShell(vm: AppVm, me: MeDto) {
     var showAccounts by remember { mutableStateOf(false) }
     var showUpdate by remember { mutableStateOf(false) }
 
+    // 模块内返回回调（修复 2）：游戏模块注册后，系统返回/顶栏返回逐级降层。
+    // 默认 null = 旧行为（直接弹路由栈），其它模块零影响。
+    val moduleBackState = remember { mutableStateOf<(() -> Boolean)?>(null) }
+
     // ---------- 权限 / 更新：顶部提醒 ----------
     val ctx = LocalContext.current
     var permMissing by remember { mutableStateOf(!NotifyHelper.hasPermission(ctx)) }
@@ -179,6 +183,9 @@ fun MainShell(vm: AppVm, me: MeDto) {
     }
 
     fun back(): Boolean {
+        // 模块内返回回调：先问当前模块要不要自己处理「返回」（如游戏：对局→大厅→列表）。
+        // 返回 true = 已降层，不再弹路由栈。默认 null = 旧行为，其它模块零影响。
+        if (moduleBackState.value?.invoke() == true) return true
         if (stack.isNotEmpty()) { route = stack.removeAt(stack.lastIndex); return true }
         if (route != "workbench") { route = "workbench"; return true }
         return false
@@ -287,6 +294,7 @@ fun MainShell(vm: AppVm, me: MeDto) {
                         route, vm, me,
                         onPrefs = { showPrefs = true },
                         onAccounts = { showAccounts = true },
+                        setModuleBack = { moduleBackState.value = it },
                         go = { code -> go(code) },
                     )
                 }
@@ -334,6 +342,7 @@ private fun ScreenHost(
     onPrefs: () -> Unit,
     onAccounts: () -> Unit,
     go: (String) -> Unit,
+    setModuleBack: ((() -> Boolean)?) -> Unit = {},
 ) {
     // 「检查更新」「更新日志」两个弹层都在这里开（入口在设置页）
     var updateSheet by remember { mutableStateOf(false) }
@@ -352,7 +361,7 @@ private fun ScreenHost(
         "stats" -> StatsScreen(vm)
         "anniversary" -> AnniversaryScreen(vm)
         "board" -> BoardScreen(vm)
-        "games" -> GamesScreen(vm)
+        "games" -> GamesScreen(vm, setModuleBack = setModuleBack)
         "couples" -> CoupleScreen(vm)
         "period" -> PeriodScreen(vm)
         "reminders" -> RemindersScreen(vm, go)

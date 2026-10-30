@@ -297,6 +297,8 @@ object Repo {
      */
     @Serializable data class GameCreateReq(
         val side: Int = 1,
+        val opponent: String = "friend",
+        val aiLevel: Int? = null,
         val size: Int? = null,
         val forbidden: Boolean? = null,
         val moveTimeoutSec: Int? = null,
@@ -338,6 +340,8 @@ object Repo {
 
     suspend fun createGame(
         side: Int,
+        opponent: String = "friend",
+        aiLevel: Int? = null,
         size: Int? = null,
         forbidden: Boolean? = null,
         moveTimeoutSec: Int? = null,
@@ -346,7 +350,7 @@ object Repo {
     ): GameCreateDto = Api.post(
         "/games/$gameKey/rooms",
         enc(
-            GameCreateReq(side, size, forbidden, moveTimeoutSec, totalTimeoutSec),
+            GameCreateReq(side, opponent, aiLevel, size, forbidden, moveTimeoutSec, totalTimeoutSec),
             GameCreateReq.serializer(),
         ),
     )
@@ -373,6 +377,11 @@ object Repo {
     suspend fun gameLeave(id: Int, gameKey: String = "gomoku") {
         Api.exec("POST", "/games/$gameKey/rooms/$id/leave")
     }
+
+    /** 教程正文：[{title, paras[]}] */
+    @Serializable data class GameTutorialSection(val title: String = "", val paras: List<String> = emptyList())
+    suspend fun gameTutorial(gameKey: String): List<GameTutorialSection> =
+        Api.get("/games/$gameKey/tutorial", cache = false)
 
     suspend fun version(): VersionDto = Api.get("/app/version")
     suspend fun changelog(): ChangelogDto = Api.get("/app/changelog")

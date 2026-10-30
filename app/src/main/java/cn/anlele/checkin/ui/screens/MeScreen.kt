@@ -27,6 +27,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -69,11 +70,13 @@ fun MeScreen(
     var email by remember(me.id) { mutableStateOf(me.email) }
     var sig by remember(me.id) { mutableStateOf(me.signature) }
     var savingProfile by remember { mutableStateOf(false) }
+    var profileError by remember { mutableStateOf<String?>(null) }
 
     var oldPwd by remember { mutableStateOf("") }
     var newPwd by remember { mutableStateOf("") }
     var newPwd2 by remember { mutableStateOf("") }
     var savingPwd by remember { mutableStateOf(false) }
+    var passwordError by remember { mutableStateOf<String?>(null) }
     var passwordEdit by remember { mutableStateOf(false) }
     var logoutAsk by remember { mutableStateOf(false) }
     var profileEdit by remember { mutableStateOf(false) }
@@ -181,10 +184,11 @@ fun MeScreen(
     if (profileEdit) {
         EditSheet(
             title = "编辑资料",
-            onClose = { profileEdit = false },
+            onClose = { profileEdit = false; profileError = null },
             saving = savingProfile,
             onSave = {
-                if (name.isBlank()) { vm.toast("昵称不能为空"); return@EditSheet }
+                profileError = if (name.isBlank()) "昵称不能为空" else null
+                if (profileError != null) return@EditSheet
                 savingProfile = true
                 scope.launch {
                     try {
@@ -194,19 +198,23 @@ fun MeScreen(
                         vm.updateMe(fresh)
                         vm.toast("资料已保存")
                         profileEdit = false
+                        profileError = null
                     } catch (e: ApiException) {
-                        vm.toast(e.message)
+                        profileError = e.message
                     } catch (e: Exception) {
-                        vm.toast("保存失败")
+                        profileError = "保存失败"
                     } finally {
                         savingProfile = false
                     }
                 }
             },
         ) {
+            profileError?.let { err ->
+                Text(err, fontSize = 12.sp, color = Color(0xFFD93025), modifier = Modifier.padding(bottom = 8.dp))
+            }
             AppField("登录名（不可改）", me.username, {}, enabled = false)
             Spacer(Modifier.height(11.dp))
-            AppField("昵称", name, { name = it }, placeholder = "管理员")
+            AppField("昵称", name, { name = it; profileError = null }, placeholder = "管理员")
             Spacer(Modifier.height(11.dp))
             AppField("联系邮箱（选填）", email, { email = it }, placeholder = "you@example.com")
             Spacer(Modifier.height(11.dp))
@@ -221,15 +229,17 @@ fun MeScreen(
     if (passwordEdit) {
         EditSheet(
             title = "修改密码",
-            onClose = { passwordEdit = false },
+            onClose = { passwordEdit = false; passwordError = null },
             saving = savingPwd,
             saveText = "修改密码",
             onSave = {
-                if (newPwd.length < 8 || !newPwd.any { it.isLetter() } || !newPwd.any { it.isDigit() }) {
-                    vm.toast("新密码至少 8 位，且须同时包含字母和数字。");
-                    return@EditSheet
+                passwordError = when {
+                    newPwd.length < 8 || !newPwd.any { it.isLetter() } || !newPwd.any { it.isDigit() } ->
+                        "新密码至少 8 位，且须同时包含字母和数字"
+                    newPwd != newPwd2 -> "两次输入的新密码不一致"
+                    else -> null
                 }
-                if (newPwd != newPwd2) { vm.toast("两次输入的新密码不一致。"); return@EditSheet }
+                if (passwordError != null) return@EditSheet
                 savingPwd = true
                 scope.launch {
                     try {
@@ -237,19 +247,23 @@ fun MeScreen(
                         oldPwd = ""; newPwd = ""; newPwd2 = ""
                         vm.toast("密码已更新，其它设备需要重新登录")
                         passwordEdit = false
+                        passwordError = null
                     } catch (e: ApiException) {
-                        vm.toast(e.message)
+                        passwordError = e.message
                     } catch (e: Exception) {
-                        vm.toast("改密失败")
+                        passwordError = "改密失败"
                     } finally {
                         savingPwd = false
                     }
                 }
             },
         ) {
+            passwordError?.let { err ->
+                Text(err, fontSize = 12.sp, color = Color(0xFFD93025), modifier = Modifier.padding(bottom = 8.dp))
+            }
             AppField("当前密码", oldPwd, { oldPwd = it }, password = true)
             Spacer(Modifier.height(11.dp))
-            AppField("新密码（至少 8 位，含字母和数字）", newPwd, { newPwd = it }, password = true)
+            AppField("新密码（至少 8 位，含字母和数字）", newPwd, { newPwd = it; passwordError = null }, password = true)
             Spacer(Modifier.height(11.dp))
             AppField("确认新密码", newPwd2, { newPwd2 = it }, password = true)
         }

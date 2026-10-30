@@ -828,6 +828,7 @@ data class GameItemDto(
     val minPlayers: Int = 2,
     val maxPlayers: Int = 2,
     val available: Boolean = true,
+    val hasAi: Boolean = false,
 )
 
 @Serializable
@@ -868,6 +869,7 @@ data class GameRoomDto(
     val mySide: Int = 0,
     val myName: String = "",
     val opponentName: String = "",
+    val isAi: Boolean = false,
     val opponentOnline: Boolean = false,
     val myTurn: Boolean = false,
     val canJoin: Boolean = false,
