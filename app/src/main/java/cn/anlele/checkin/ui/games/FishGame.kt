@@ -499,16 +499,24 @@ internal class FishEngine(val width: Float = W, val height: Float = H) {
         ty = y.coerceIn(0f, height)
     }
 
-    /** 摇杆推进：把目标点推到玩家前方（推量比例控步长，轻推小步满推大步；按住时由 JoystickPad 持续刷新） */
-    fun nudge(dirX: Float, dirY: Float, dist: Float = 60f) {
-        val d = hypot(dirX, dirY)
-        if (d < 12f) return   // 死区：防误触（灵敏度 2.8.8 调优）
-        val amp = (d / 40f).coerceIn(0.35f, 1f)
-        setTarget(px + dirX / d * dist * amp, py + dirY / d * dist * amp)
+    /** 摇杆速度系数：推杆幅度控速（轻推慢游、满推全速；2.8.9 灵敏度治本）。
+     *  触摸直控（setTarget）不经过此系数，保持原手感。 */
+    var joySpeed = 1f
+        private set
+
+    /** 摇杆推进（dirX/dirY 为归一化推杆偏移 -1..1，JoystickPad 已除摇杆半径）。
+     *  推量 → 速度 30%~100% + 步长 28~62px；20% 以下死区防误触。 */
+    fun nudge(dirX: Float, dirY: Float) {
+        val d = hypot(dirX, dirY)   // 0..1 归一化推量
+        if (d < 0.2f) return        // 死区 20%（按比例，不随屏幕密度漂移）
+        val amp = ((d - 0.2f) / 0.8f).coerceIn(0f, 1f)
+        joySpeed = 0.3f + 0.7f * amp        // 轻推 30% 速，满推才全速
+        val dist = 28f + 34f * amp          // 目标步长随推量
+        setTarget(px + dirX / d * dist, py + dirY / d * dist)
     }
 
     /** 摇杆松手：停在原地 */
-    fun stop() { tx = px; ty = py }
+    fun stop() { tx = px; ty = py; joySpeed = 1f }
 
     /** 摇杆用：玩家当前位置 */
     fun playerX() = px
@@ -534,8 +542,8 @@ internal class FishEngine(val width: Float = W, val height: Float = H) {
         if (ns > stage) { stage = ns; stageFlash = 1.2f }
         if (stageFlash > 0f) stageFlash -= dt
         val speedMult = 1f + 0.12f * (stage - 1)
-        // 平滑跟随 + 转身（F4）
-        val k = min(1f, dt * 8f)
+        // 平滑跟随 + 转身（F4）；joySpeed = 摇杆推量控速（触摸直控恒 1）
+        val k = min(1f, dt * 8f * joySpeed)
         val nx = px + (tx - px) * k
         val ny = py + (ty - py) * k
         if (abs(nx - px) > 0.3f) dir = if (nx > px) 1 else -1
@@ -613,16 +621,20 @@ internal class FishEngine(val width: Float = W, val height: Float = H) {
 
 
 /** 底部虚拟摇杆：拖动推方向，松手回中。与原有点按/拖拽并存（各管各的手势区域）。
- *  按住持续朝向游（每 90ms 刷一次方向 = 连续移动），松手即停（2.8.8 手感调优）。 */
+ *  按住持续朝向游（每 90ms 刷一次方向 = 连续移动），松手即停。
+ *  输出**归一化**推杆偏移（-1..1 = 偏移/半径），死区与速度按比例算（不随屏幕密度漂移）。 */
 @Composable
 private fun JoystickPad(onMove: (Float, Float) -> Unit, onStop: () -> Unit) {
     var thumb by remember { mutableStateOf(Offset.Zero) }
     var holding by remember { mutableStateOf(false) }
     val p = palette
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // 摇杆半径（px）：132.dp 盒 × 0.34（与 pointerInput 内一致）——归一化基准
+    val rPx = with(density) { 132.dp.toPx() } * 0.34f
     // 按住期间持续推送方向（否则只在拖动事件时推一下、鱼游到目标就停，不像摇杆）
     LaunchedEffect(holding) {
         while (holding) {
-            onMove(thumb.x, thumb.y)
+            onMove(thumb.x / rPx, thumb.y / rPx)
             kotlinx.coroutines.delay(90)
         }
     }
@@ -641,12 +653,12 @@ private fun JoystickPad(onMove: (Float, Float) -> Unit, onStop: () -> Unit) {
                         val c = Offset(size.width / 2f, size.height / 2f)
                         thumb = clamped(pos - c, r)
                         holding = true
-                        onMove(thumb.x, thumb.y)
+                        onMove(thumb.x / rPx, thumb.y / rPx)
                     },
                     onDrag = { change, drag ->
                         change.consume()
                         thumb = clamped(thumb + drag, r)
-                        onMove(thumb.x, thumb.y)
+                        onMove(thumb.x / rPx, thumb.y / rPx)
                     },
                     onDragEnd = { thumb = Offset.Zero; holding = false; onStop() },
                     onDragCancel = { thumb = Offset.Zero; holding = false; onStop() },
