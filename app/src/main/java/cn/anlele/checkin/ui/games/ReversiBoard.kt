@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.geometry.Offset
 
 /**
- * 黑白棋棋盘 —— 8×8 格、黑白圆子、翻子提示。
+ * 黑白棋棋盘 —— 可变盘面（6/8/10/12，默认 8）、黑白圆子、翻子提示。
  * 固定色不跟主题（红线 18）。对应网页 boards/reversi.js。
  */
 @Composable
@@ -34,7 +34,7 @@ fun ReversiBoard(
     lastFlips: List<Pair<Int, Int>> = emptyList(),
     onTap: ((Int, Int) -> Unit)? = null,
 ) {
-    val size = 8
+    val size = board.size   // 可变盘面：board 自描述（buildReversiBoard 按快照 size 生成）
     // 渐变圆子图标（icons-ready 同源，D-5）
     val stoneIcons = rememberPieceIcons("stone", listOf("black", "white"))
     // 落子确认预览（任务二尾巴，与 App 五子棋 Board 同规）：第一下预览、同点第二下落
@@ -52,7 +52,7 @@ fun ReversiBoard(
     val confirmTap: ((Int, Int) -> Unit)? = if (onTap == null) null else fun(x: Int, y: Int) {
         if (board[x][y] != 0) return
         if (tapConfirm) {
-            val key = y * 8 + x
+            val key = y * size + x
             if (ghost != key) { ghost = key; return }
             ghost = null
         }
@@ -91,7 +91,7 @@ fun ReversiBoard(
                         dstOffset = IntOffset((c.x - spW / 2f).toInt(), (c.y - spH / 2f).toInt()),
                     )
                 }
-            } else if (ghost == y * 8 + x && myTurn) {
+            } else if (ghost == y * size + x && myTurn) {
                 // 落子确认预览（任务二尾巴）：半透明石子
                 val bmpP = stoneIcons[if (mySide == 1) "black" else "white"]
                 if (bmpP != null) {
@@ -125,11 +125,13 @@ fun ReversiBoard(
     )
 }
 
-/** 从事件列表重建盘面 */
-fun buildReversiBoard(events: List<Map<String, Any?>>): Array<IntArray> {
-    val board = Array(8) { IntArray(8) }
-    board[3][3] = 2; board[4][4] = 2
-    board[3][4] = 1; board[4][3] = 1
+/** 从事件列表重建盘面（size = 快照盘面大小，6/8/10/12；缺省 8） */
+fun buildReversiBoard(events: List<Map<String, Any?>>, size: Int = 8): Array<IntArray> {
+    val n = if (size in listOf(6, 8, 10, 12)) size else 8
+    val board = Array(n) { IntArray(n) }
+    val c = n / 2
+    board[c - 1][c - 1] = 2; board[c][c] = 2
+    board[c][c - 1] = 1; board[c - 1][c] = 1
 
     for (e in events) {
         val t = e["t"] as? String ?: continue
@@ -137,7 +139,7 @@ fun buildReversiBoard(events: List<Map<String, Any?>>): Array<IntArray> {
         val x = (e["x"] as? Number)?.toInt() ?: continue
         val y = (e["y"] as? Number)?.toInt() ?: continue
         val s = (e["s"] as? Number)?.toInt() ?: continue
-        if (x !in 0..7 || y !in 0..7 || board[x][y] != 0) continue
+        if (x !in 0 until n || y !in 0 until n || board[x][y] != 0) continue
         board[x][y] = s
         for ((fx, fy) in reversiFlips(board, x, y, s)) board[fx][fy] = s
     }
@@ -145,10 +147,12 @@ fun buildReversiBoard(events: List<Map<String, Any?>>): Array<IntArray> {
 }
 
 /** 最后一手翻转的格（任务二尾巴：翻子动画）；无着返回空 */
-fun reversiLastFlips(events: List<Map<String, Any?>>): List<Pair<Int, Int>> {
-    val board = Array(8) { IntArray(8) }
-    board[3][3] = 2; board[4][4] = 2
-    board[3][4] = 1; board[4][3] = 1
+fun reversiLastFlips(events: List<Map<String, Any?>>, size: Int = 8): List<Pair<Int, Int>> {
+    val n = if (size in listOf(6, 8, 10, 12)) size else 8
+    val board = Array(n) { IntArray(n) }
+    val c = n / 2
+    board[c - 1][c - 1] = 2; board[c][c] = 2
+    board[c][c - 1] = 1; board[c - 1][c] = 1
     var last: List<Pair<Int, Int>> = emptyList()
     for (e in events) {
         val t = e["t"] as? String ?: continue
@@ -156,7 +160,7 @@ fun reversiLastFlips(events: List<Map<String, Any?>>): List<Pair<Int, Int>> {
         val x = (e["x"] as? Number)?.toInt() ?: continue
         val y = (e["y"] as? Number)?.toInt() ?: continue
         val sv = (e["s"] as? Number)?.toInt() ?: continue
-        if (x !in 0..7 || y !in 0..7 || board[x][y] != 0) continue
+        if (x !in 0 until n || y !in 0 until n || board[x][y] != 0) continue
         board[x][y] = sv
         last = reversiFlips(board, x, y, sv).also { f -> f.forEach { (fx, fy) -> board[fx][fy] = sv } }
     }
@@ -165,6 +169,7 @@ fun reversiLastFlips(events: List<Map<String, Any?>>): List<Pair<Int, Int>> {
 
 /** 计算 (x,y) 落子能翻的对方子 */
 fun reversiFlips(board: Array<IntArray>, x: Int, y: Int, side: Int): List<Pair<Int, Int>> {
+    val n = board.size
     val flips = mutableListOf<Pair<Int, Int>>()
     val dirs = listOf(
         1 to 0, -1 to 0, 0 to 1, 0 to -1,
@@ -173,11 +178,11 @@ fun reversiFlips(board: Array<IntArray>, x: Int, y: Int, side: Int): List<Pair<I
     for ((dx, dy) in dirs) {
         val line = mutableListOf<Pair<Int, Int>>()
         var cx = x + dx; var cy = y + dy
-        while (cx in 0..7 && cy in 0..7 && board[cx][cy] != 0 && board[cx][cy] != side) {
+        while (cx in 0 until n && cy in 0 until n && board[cx][cy] != 0 && board[cx][cy] != side) {
             line.add(cx to cy)
             cx += dx; cy += dy
         }
-        if (line.isNotEmpty() && cx in 0..7 && cy in 0..7 && board[cx][cy] == side) {
+        if (line.isNotEmpty() && cx in 0 until n && cy in 0 until n && board[cx][cy] == side) {
             flips.addAll(line)
         }
     }

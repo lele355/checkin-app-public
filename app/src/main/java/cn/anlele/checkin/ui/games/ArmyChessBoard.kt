@@ -34,6 +34,7 @@ fun ArmyChessBoard(
     anim: BoardAnim? = null,
     ghost: ArmyChessPiece? = null,
     ghostAlpha: Float = 0f,
+    flip: Boolean = false,
 ) {
     val measurer = rememberTextMeasurer()
     val rankNames = remember {
@@ -99,6 +100,7 @@ fun ArmyChessBoard(
         rows = 12,
         modifier = modifier,
         bgColor = Color(0xFFC8B896),
+        flip = flip,
         onTap = onTap,
         drawCell = { geom, x, y ->
             when (armyChessCellType(x, y)) {
@@ -149,8 +151,9 @@ fun ArmyChessBoard(
             for (p in pieces) {
                 val isAnim = anim != null && p.x == anim.toX && p.y == anim.toY
                 val cx = if (isAnim) {
-                    val base = geom.start(0, 0)
-                    Offset(base.x + anim.x * geom.cellW + geom.cellW / 2f, base.y + anim.y * geom.cellH + geom.cellH / 2f)
+                    // 插值位置手算（小数直接翻转，与 XiangqiBoard.pyf 同规）
+                    val ay = if (flip) 11f - anim.y else anim.y
+                    Offset(geom.padPx + anim.x * geom.cellW + geom.cellW / 2f, geom.padPx + ay * geom.cellH + geom.cellH / 2f)
                 } else geom.center(p.x, p.y)
                 val scl = if (isAnim) anim.scale else 1f
                 val sidePx = (min(geom.cellW, geom.cellH) * 0.94f * scl).toInt().coerceAtLeast(2)

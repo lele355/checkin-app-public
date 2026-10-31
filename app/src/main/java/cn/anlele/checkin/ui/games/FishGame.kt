@@ -1,6 +1,11 @@
 package cn.anlele.checkin.ui.games
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -272,13 +277,16 @@ fun FishGame(
             }
         }
 
-        leaderboard?.let { lb ->
-            Spacer(Modifier.height(10.dp))
-            Text("排行榜", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = p.text)
-            lb.items.forEach {
-                Text("${it.rank}. ${it.name} · ${it.bestScore}", fontSize = 13.sp, color = p.textSub)
+        // 摇杆在画布下方（页面底部空白区），不挡手指
+        if (!over) {
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.Center) {
+                JoystickPad(onMove = { dx, dy -> engine.nudge(dx, dy) }, onStop = { engine.stop() })
             }
-            Text("我的最高分 ${lb.mine.bestScore} · 第 ${lb.mine.rank} 名", fontSize = 13.sp, color = p.textSub)
+        }
+
+        // 排行榜弹窗化（2026-10-31 站主定：内联面板 → 弹窗；与网页 Solo 同交互）
+        leaderboard?.let { lb ->
+            cn.anlele.checkin.ui.components.LeaderboardSheet(lb = lb, onDismiss = { leaderboard = null })
         }
     }
 }
@@ -491,6 +499,21 @@ internal class FishEngine(val width: Float = W, val height: Float = H) {
         ty = y.coerceIn(0f, height)
     }
 
+    /** 摇杆推进：把目标点推到玩家前方（推量比例控步长，轻推小步满推大步；按住时由 JoystickPad 持续刷新） */
+    fun nudge(dirX: Float, dirY: Float, dist: Float = 60f) {
+        val d = hypot(dirX, dirY)
+        if (d < 12f) return   // 死区：防误触（灵敏度 2.8.8 调优）
+        val amp = (d / 40f).coerceIn(0.35f, 1f)
+        setTarget(px + dirX / d * dist * amp, py + dirY / d * dist * amp)
+    }
+
+    /** 摇杆松手：停在原地 */
+    fun stop() { tx = px; ty = py }
+
+    /** 摇杆用：玩家当前位置 */
+    fun playerX() = px
+    fun playerY() = py
+
     /** 冲刺：朝目标方向瞬时加推（冷却 1.2s，F4） */
     fun dash() {
         if (dashCd > 0f) return
@@ -585,5 +608,57 @@ internal class FishEngine(val width: Float = W, val height: Float = H) {
             }
         }
         repeat(eaten) { spawnFish(-1) }
+    }
+}
+
+
+/** 底部虚拟摇杆：拖动推方向，松手回中。与原有点按/拖拽并存（各管各的手势区域）。
+ *  按住持续朝向游（每 90ms 刷一次方向 = 连续移动），松手即停（2.8.8 手感调优）。 */
+@Composable
+private fun JoystickPad(onMove: (Float, Float) -> Unit, onStop: () -> Unit) {
+    var thumb by remember { mutableStateOf(Offset.Zero) }
+    var holding by remember { mutableStateOf(false) }
+    val p = palette
+    // 按住期间持续推送方向（否则只在拖动事件时推一下、鱼游到目标就停，不像摇杆）
+    LaunchedEffect(holding) {
+        while (holding) {
+            onMove(thumb.x, thumb.y)
+            kotlinx.coroutines.delay(90)
+        }
+    }
+    fun clamped(o: Offset, r: Float): Offset {
+        val d = kotlin.math.hypot(o.x, o.y)
+        return if (d <= r || d == 0f) o else Offset(o.x / d * r, o.y / d * r)
+    }
+    Box(
+        Modifier
+            .size(132.dp)
+            .background(p.cardSoft.copy(alpha = 0.75f), CircleShape)
+            .pointerInput(Unit) {
+                val r = size.width * 0.34f
+                detectDragGestures(
+                    onDragStart = { pos ->
+                        val c = Offset(size.width / 2f, size.height / 2f)
+                        thumb = clamped(pos - c, r)
+                        holding = true
+                        onMove(thumb.x, thumb.y)
+                    },
+                    onDrag = { change, drag ->
+                        change.consume()
+                        thumb = clamped(thumb + drag, r)
+                        onMove(thumb.x, thumb.y)
+                    },
+                    onDragEnd = { thumb = Offset.Zero; holding = false; onStop() },
+                    onDragCancel = { thumb = Offset.Zero; holding = false; onStop() },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(54.dp)
+                .offset { IntOffset(thumb.x.toInt(), thumb.y.toInt()) }
+                .background(p.accent.copy(alpha = 0.9f), CircleShape),
+        )
     }
 }

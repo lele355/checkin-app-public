@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -31,6 +32,7 @@ fun XiangqiBoard(
     inCheck: Boolean = false,
     showCoord: Boolean = false,
     lastMark: Boolean = true,
+    flip: Boolean = false,
     modifier: Modifier = Modifier,
     onTap: ((Int, Int) -> Unit)? = null,
     selected: Pair<Int, Int>? = null,
@@ -48,6 +50,11 @@ fun XiangqiBoard(
     // 图标件名（下标 = 服务端 PieceType）：红=帅仕相马车炮兵 / 黑=将士象马车炮卒
     val xqIconRed = remember { listOf("", "red_shuai", "red_shi", "red_xiang", "red_ma", "red_che", "red_pao", "red_bing") }
     val xqIconBlack = remember { listOf("", "black_jiang", "black_shi", "black_xiang", "black_ma", "black_che", "black_pao", "black_zu") }
+    // 手势闭包取最新回调：pointerInput(Unit) 只创建一次，直接捕获 onTap 会永远用首帧局面
+    // （2026-10-31 线上事故根因：象棋走一步后点不到子）
+    val tapCb = rememberUpdatedState(onTap)
+    // 视角对调：上方座（side 2）看到的棋盘上下翻转（己方恒在下半区）；只翻格位不翻字形
+    val flipSt = rememberUpdatedState(flip)
     Canvas(
         modifier = modifier
             .fillMaxWidth()
@@ -60,8 +67,11 @@ fun XiangqiBoard(
                     val cw = (w - pad * 2) / 8f
                     val ch = (h - pad * 2) / 9f
                     val gx = ((pos.x - pad + cw / 2) / cw).toInt()
-                    val gy = ((pos.y - pad + ch / 2) / ch).toInt()
-                    if (gx in 0..8 && gy in 0..9) onTap?.invoke(gx, gy)
+                    var gy = ((pos.y - pad + ch / 2) / ch).toInt()
+                    if (gx in 0..8 && gy in 0..9) {
+                        if (flipSt.value) gy = 9 - gy   // 显示行 → 逻辑行
+                        tapCb.value?.invoke(gx, gy)
+                    }
                 }
             }
     ) {
@@ -72,9 +82,10 @@ fun XiangqiBoard(
         val ch = (h - pad * 2) / 9f
 
         fun px(x: Int) = pad + x * cw
-        fun py(y: Int) = pad + y * ch
+        fun vy(y: Int) = if (flip) 9 - y else y
+        fun py(y: Int) = pad + vy(y) * ch
         fun pxf(x: Float) = pad + x * cw
-        fun pyf(y: Float) = pad + y * ch
+        fun pyf(y: Float) = pad + (if (flip) 9f - y else y) * ch   // 小数直接翻（走子动画插值用）
 
         // 背景
         drawRect(Color(0xFFF0D9A8))

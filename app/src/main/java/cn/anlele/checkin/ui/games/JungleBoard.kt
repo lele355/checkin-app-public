@@ -33,17 +33,21 @@ fun JungleBoard(
     anim: BoardAnim? = null,
     ghost: JunglePiece? = null,
     ghostAlpha: Float = 0f,
+    flip: Boolean = false,
 ) {
     val measurer = rememberTextMeasurer()
     val rankNames = remember { arrayOf("鼠", "猫", "狗", "狼", "豹", "虎", "狮", "象") }
-    // 兽剪影图标（icons-ready 同源，D-5）：rank 1..8 → rat..elephant，圆子上染白显示
-    val pieceIcons = rememberPieceIcons("jungle", listOf("rat", "cat", "dog", "wolf", "leopard", "tiger", "lion", "elephant"))
+    // 整枚字面图标（icons-ready 同源，2.8.8 字面制式对齐象棋/军棋 —— 木饼刻字）：
+    // rank 1..8 × 红/蓝双色套，直贴不再 tint（合成图自带侧色）
+    val pieceIcons = rememberPieceIcons("jungle", listOf("rat", "cat", "dog", "wolf", "leopard", "tiger", "lion", "elephant")
+        .flatMap { listOf("red_$it", "blue_$it") })
     val beastKeys = remember { listOf("rat", "cat", "dog", "wolf", "leopard", "tiger", "lion", "elephant") }
     GridBoardRect(
         cols = 7,
         rows = 9,
         modifier = modifier,
         bgColor = Color(0xFFF5E6C8),
+        flip = flip,
         onTap = onTap,
         drawCell = { geom, x, y ->
             // 特殊格
@@ -63,32 +67,27 @@ fun JungleBoard(
                 drawText(t, topLeft = Offset(geom.center(x, y).x - t.size.width / 2f, geom.center(x, y).y - t.size.height / 2f))
             }
 
-            // 棋子（圆 + 兽名；走子动画插值 + 落点回弹缩放）
+            // 棋子（整枚字面图标直贴；走子动画插值 + 落点回弹缩放）
             val piece = pieces.find { it.x == x && it.y == y }
             if (piece != null) {
                 val isAnim = anim != null && piece.x == anim.toX && piece.y == anim.toY
                 val r0 = minOf(geom.cellW, geom.cellH) * 0.4f
                 val center = if (isAnim) {
-                    val base = geom.start(0, 0)
-                    Offset(base.x + anim.x * geom.cellW + geom.cellW / 2f, base.y + anim.y * geom.cellH + geom.cellH / 2f)
+                    // 插值位置手算（小数直接翻转，与 XiangqiBoard.pyf 同规）
+                    val ay = if (flip) 9f - anim.y else anim.y
+                    Offset(geom.padPx + anim.x * geom.cellW + geom.cellW / 2f, geom.padPx + ay * geom.cellH + geom.cellH / 2f)
                 } else geom.center(x, y)
                 val r = if (isAnim) r0 * anim.scale else r0
-                drawCircle(if (piece.side == 1) Color(0xFFD32F2F) else Color(0xFF1565C0), radius = r, center = center)
-                drawCircle(Color.White, radius = r, center = center, style = Stroke(width = 2f))
-                // 白色兽剪影（icons-ready 同源）+ 等级角标（与网页同构）
-                val bmp = pieceIcons[beastKeys.getOrElse(piece.rank - 1) { "rat" }]
+                val key = (if (piece.side == 1) "red_" else "blue_") + beastKeys.getOrElse(piece.rank - 1) { "rat" }
+                val bmp = pieceIcons[key]
                 if (bmp != null) {
-                    val bs = (r * 1.5f * 2f).toInt().coerceAtLeast(2)   // 剪影盒 = 直径×0.75
+                    val bs = (r * 2.35f).toInt().coerceAtLeast(2)   // 整枚含侧色环（对齐网页 0.94 格宽）
                     drawImage(
                         bmp,
                         dstSize = IntSize(bs, bs),
                         dstOffset = IntOffset((center.x - bs / 2f).toInt(), (center.y - bs / 2f).toInt()),
-                        colorFilter = ColorFilter.tint(Color.White, BlendMode.SrcIn),
                     )
                 }
-                val name = rankNames.getOrElse(piece.rank - 1) { "?" }
-                val t = measurer.measure(name, TextStyle(fontSize = 11.sp, color = Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold))
-                drawText(t, topLeft = Offset(center.x + r * 0.72f - t.size.width / 2f, center.y - r * 0.5f - t.size.height / 2f))
             }
         },
         drawOverlay = { geom ->
@@ -130,21 +129,19 @@ fun JungleBoard(
                     }
                 }
             }
-            // 吃子鬼影（Batch D）：被吃子淡出（图标同源）
+            // 吃子鬼影（Batch D）：被吃子淡出（整枚图标直贴）
             if (ghost != null && ghostAlpha > 0f) {
                 val r = minOf(geom.cellW, geom.cellH) * 0.4f
                 val c = geom.center(ghost.x, ghost.y)
-                drawCircle((if (ghost.side == 1) Color(0xFFD32F2F) else Color(0xFF1565C0)).copy(alpha = ghostAlpha), radius = r, center = c)
-                drawCircle(Color.White.copy(alpha = ghostAlpha), radius = r, center = c, style = Stroke(width = 2f))
-                val bmpG = pieceIcons[beastKeys.getOrElse(ghost.rank - 1) { "rat" }]
+                val keyG = (if (ghost.side == 1) "red_" else "blue_") + beastKeys.getOrElse(ghost.rank - 1) { "rat" }
+                val bmpG = pieceIcons[keyG]
                 if (bmpG != null) {
-                    val bs = (r * 3f).toInt().coerceAtLeast(2)
+                    val bs = (r * 2.35f).toInt().coerceAtLeast(2)
                     drawImage(
                         bmpG,
                         dstSize = IntSize(bs, bs),
                         dstOffset = IntOffset((c.x - bs / 2f).toInt(), (c.y - bs / 2f).toInt()),
                         alpha = ghostAlpha,
-                        colorFilter = ColorFilter.tint(Color.White, BlendMode.SrcIn),
                     )
                 }
             }

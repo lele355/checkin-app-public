@@ -62,6 +62,14 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
@@ -124,6 +132,9 @@ import kotlin.math.roundToInt
 /** 盘面可选值 —— 与网页 / 服务端 GomokuRules.AllowedSizes 保持一致 */
 private val BOARD_SIZES = listOf(13, 15, 19)
 
+/** 黑白棋盘面可选值 —— 与服务端 ReversiRules.SizeOptions 保持一致 */
+private val REVERSI_SIZES = listOf(6, 8, 10, 12)
+
 /** 单步限时可选值（秒），0 = 不限 */
 private val MOVE_TIMEOUTS = listOf(0, 15, 30, 60, 120)
 
@@ -160,7 +171,6 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
     var busy by remember { mutableStateOf(false) }
     var confirmResign by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
-    var displayOpen by remember { mutableStateOf(false) }
     var rulesOpen by remember { mutableStateOf(false) }
     var tutorialOpen by remember { mutableStateOf(false) }
 
@@ -239,8 +249,12 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
                 // 只覆盖盘面/禁手（这是用户在当前界面里刚选的）；
                 // 限时留空 = 由服务端按账号默认填，避免本地缓存过期
                 val key = gameKey ?: "gomoku"
+                // 盘面/禁手只对五子棋有意义，其他游戏不传（避免无效参数写进房间快照）
                 val d = Repo.createGame(
-                    side, size = newSize, forbidden = newForbidden, gameKey = key,
+                    side,
+                    size = if (key == "gomoku" || key == "reversi") newSize else null,
+                    forbidden = if (key == "gomoku") newForbidden else null,
+                    gameKey = key,
                     mode = if (key == "armychess") listOf("open", "dark", "fanqi")[newArmyMode.coerceIn(0, 2)] else null,
                 )
                 room = Repo.game(d.id, key)
@@ -416,6 +430,11 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
         scope.launch { refreshLobby() }
     }
 
+    // 返回键分层（2026-10-31 修 2.8.6.1 回归：对局页按返回直接退出应用）
+    // 直接在页面内挂 BackHandler，不依赖主壳的模块回调（那条链路在内容切换时会丢）
+    BackHandler(enabled = room != null) { backToLobby() }
+    BackHandler(enabled = room == null && gameKey != null) { gameKey = null }
+
     // 修复 2：注册模块内返回回调 —— 对局→大厅→列表→退出模块（逐级降层）
     // 列表层返回 false = 交给 shell 弹路由栈（退出游戏模块）
     LaunchedEffect(room?.id, gameKey) {
@@ -443,7 +462,6 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
         scope.launch {
             try {
                 display = Repo.saveGameDisplay(next)
-                displayOpen = false
                 vm.toast("设置已保存")
             } catch (e: Exception) {
                 vm.toast(e.message ?: "保存失败")
@@ -547,7 +565,6 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
         scope.launch {
             try {
                 display = Repo.saveGameDisplay(GameDisplayDto())
-                displayOpen = false
                 vm.toast("已恢复默认")
             } catch (e: Exception) {
                 vm.toast(e.message ?: "操作失败")
@@ -570,18 +587,34 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
 
     val cur = room
     val soloGame = gameKey?.let { k -> catalog.games.find { it.key == k && it.solo } }
-    when {
-        gameKey == null -> GamesListContent(
-            catalog = catalog,
-            onPick = { gameKey = it },
-            onOpenDisplay = { displayOpen = true },
-        )
-        soloGame != null -> SoloContent(
-            gameKey = soloGame.key,
-            maxScore = soloGame.maxScore,
-            onBack = { gameKey = null },
-        )
-        cur == null -> LobbyContent(
+    // 页面切换动效（站主定 2026-10-31）：列表→大厅→对局 逐级「右进左出」，返回反向；方向由层级差决定
+    val navKey = when {
+        gameKey == null -> 0
+        soloGame != null -> 1
+        cur == null -> 2
+        else -> 3
+    }
+    AnimatedContent(
+        targetState = navKey,
+        transitionSpec = {
+            val fwd = targetState > initialState
+            val slide = tween<IntOffset>(240)
+            (slideInHorizontally(slide) { w -> if (fwd) w else -w / 4 } + fadeIn(tween(170)))
+                .togetherWith(slideOutHorizontally(slide) { w -> if (fwd) -w / 4 else w } + fadeOut(tween(150)))
+        },
+        label = "games-nav",
+    ) { nav ->
+        when (nav) {
+            0 -> GamesListContent(
+                catalog = catalog,
+                onPick = { gameKey = it },
+            )
+            1 -> SoloContent(
+                gameKey = soloGame?.key ?: "melon",
+                maxScore = soloGame?.maxScore ?: 0,
+                onBack = { gameKey = null },
+            )
+            2 -> LobbyContent(
             lobby = lobby,
             rules = rules,
             newSize = newSize,
@@ -610,7 +643,8 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
             onLudoAiToggle = { i, v -> ludoAi = ludoAi.toMutableList().also { it[i] = v } },
             onCreateLudo = ::createLudo,
         )
-        else -> RoomContent(
+        // 离房过渡期间 room 已置空但旧内容仍会被合成 —— 必须容忍 null（2.8.6.1「返回即退出」崩溃根因）
+        else -> if (cur != null) RoomContent(
             dto = cur,
             prefs = display,
             onMove = ::move,
@@ -627,19 +661,12 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
             onRebuildVote = ::rebuildVote,
             onRebuildGoto = ::rebuildGoto,
         )
+        }
     }
 
     // 音效开关同步（DisplaySettings.Sound → GameSfx，只影响本机）
     LaunchedEffect(display.sound) { GameSfx.enabled = display.sound }
 
-    if (displayOpen) {
-        GameDisplaySheet(
-            initial = display,
-            onDismiss = { displayOpen = false },
-            onSave = ::saveDisplay,
-            onResetDefault = ::resetDisplay,
-        )
-    }
     if (rulesOpen) {
         GameRulesSheet(
             gameKey = gameKey ?: "gomoku",
@@ -717,7 +744,6 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
 private fun GamesListContent(
     catalog: GameCatalogDto,
     onPick: (String) -> Unit,
-    onOpenDisplay: () -> Unit,
 ) {
     val p = palette
     LazyColumn(
@@ -728,7 +754,8 @@ private fun GamesListContent(
         item {
             PageHeadCard(
                 title = "小游戏",
-                actions = { SecondaryButton("设置", onClick = onOpenDisplay) },
+                // 站主定（2026-10-31）：列表页不再有全局「设置」入口——显示偏好并进各游戏自己的设置面板
+                actions = {},
             )
         }
 
@@ -878,20 +905,26 @@ private fun LobbyContent(
                             )
                             Spacer(Modifier.height(10.dp))
                         }
-                        OptionChips(
-                            title = "盘面",
-                            options = BOARD_SIZES.map { "$it 路" },
-                            selectedIndex = BOARD_SIZES.indexOf(newSize).coerceAtLeast(0),
-                            enabled = !busy,
-                            onPick = { onSizeChange(BOARD_SIZES[it]) },
-                        )
-                        OptionChips(
-                            title = "规则",
-                            options = listOf("自由规则", "标准规则"),
-                            selectedIndex = if (newForbidden) 1 else 0,
-                            enabled = !busy,
-                            onPick = { onForbiddenChange(it == 1) },
-                        )
+                        // 盘面：五子棋/黑白棋适用；禁手：仅五子棋（固定盘面游戏的无效选项不许出现，0.2 铁律）
+                        if (gameKey == "gomoku" || gameKey == "reversi") {
+                            val sizeOpts = if (gameKey == "reversi") REVERSI_SIZES else BOARD_SIZES
+                            OptionChips(
+                                title = "盘面",
+                                options = sizeOpts.map { if (gameKey == "reversi") "$it×$it" else "$it 路" },
+                                selectedIndex = sizeOpts.indexOf(newSize).coerceAtLeast(0),
+                                enabled = !busy,
+                                onPick = { onSizeChange(sizeOpts[it]) },
+                            )
+                        }
+                        if (gameKey == "gomoku") {
+                            OptionChips(
+                                title = "规则",
+                                options = listOf("自由规则", "标准规则"),
+                                selectedIndex = if (newForbidden) 1 else 0,
+                                enabled = !busy,
+                                onPick = { onForbiddenChange(it == 1) },
+                            )
+                        }
                     }
 
                     // 限时：只读事实标签（不写解释句，守 0.2）
@@ -908,10 +941,9 @@ private fun LobbyContent(
                             PrimaryButton("新建对局（我先手）", Modifier.weight(1f), icon = "plus", enabled = !busy) { onCreate(1) }
                             SecondaryButton("我后手", Modifier.weight(0.6f), enabled = !busy) { onCreate(2) }
                         }
-                        if (lobby.items.isEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            SecondaryButton("人机对战", Modifier.fillMaxWidth(), enabled = !busy) { onCreateAi() }
-                        }
+                        // 人机对战常驻（原先只在「大厅空」时显示，大厅一有房间就找不到入口）
+                        Spacer(Modifier.height(8.dp))
+                        SecondaryButton("人机对战", Modifier.fillMaxWidth(), enabled = !busy) { onCreateAi() }
                     }
                 }
             }
@@ -943,7 +975,7 @@ private fun LobbyContent(
         if (mine.isNotEmpty()) {
             item { SectionTitle("我的对局") }
             items(mine, key = { it.id }) { r ->
-                RoomRowCard(r, mySide = r.mySide, onClick = { onJoin(r.id) }) {
+                RoomRowCard(r, gameKey = gameKey, mySide = r.mySide, onClick = { onJoin(r.id) }) {
                     if (r.status != "playing") {
                         SecondaryButton("解散", danger = true) { onLeave(r.id) }
                     }
@@ -964,7 +996,7 @@ private fun LobbyContent(
             }
         } else {
             items(open, key = { it.id }) { r ->
-                RoomRowCard(r, mySide = 0, onClick = { onJoin(r.id) })
+                RoomRowCard(r, gameKey = gameKey, mySide = 0, onClick = { onJoin(r.id) })
             }
         }
     }
@@ -973,6 +1005,7 @@ private fun LobbyContent(
 @Composable
 private fun RoomRowCard(
     r: GameLobbyItemDto,
+    gameKey: String,
     mySide: Int,
     onClick: () -> Unit,
     trailing: (@Composable () -> Unit)? = null,
@@ -991,7 +1024,14 @@ private fun RoomRowCard(
         else -> "等对手"
     }
     val hot = r.status == "waiting" || (r.status == "playing" && r.myTurn)
-    val rules = "${r.size}×${r.size} · ${if (r.forbidden) "标准" else "自由"}"
+    // 盘面/禁手只对可变盘面游戏有意义 —— 其他游戏的房间卡不再显示尺寸（串味残留）
+    val rules = when (gameKey) {
+        "gomoku" -> "${r.size}×${r.size} · ${if (r.forbidden) "标准" else "自由"}"
+        "reversi" -> "${r.size}×${r.size}"
+        else -> ""
+    }
+    val meta = listOf(rules, "${r.moveCount} 手", statusText, Dates.dayTime(r.updatedAt))
+        .filter { it.isNotBlank() }.joinToString(" · ")
 
     AppCard(Modifier.fillMaxWidth(), onClick = onClick, padding = PaddingValues(13.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1010,8 +1050,8 @@ private fun RoomRowCard(
                 Text(title, fontSize = 13.5.sp, color = p.text, fontWeight = FontWeight.Medium, maxLines = 1)
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    if (r.status == "waiting") "房间码 ${r.code} · $rules · $statusText"
-                    else "$rules · ${r.moveCount} 手 · $statusText · ${Dates.dayTime(r.updatedAt)}",
+                    if (r.status == "waiting") "房间码 ${r.code}" + (if (rules.isNotBlank()) " · $rules" else "") + " · $statusText"
+                    else meta,
                     fontSize = 11.5.sp,
                     color = p.textWeak,
                     maxLines = 1,
@@ -1025,6 +1065,8 @@ private fun RoomRowCard(
 // ---------------- 设置弹层 ----------------
 
 /// 游戏总设置：只改自己的画面，不进房间、不影响对手
+/// （2026-10-31 站主定：列表页全局入口已下线，显示偏好并进各游戏设置面板；此组件保留备用）
+@Suppress("unused")
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GameDisplaySheet(
@@ -1103,10 +1145,12 @@ private fun GameRulesSheet(
     val showCoord = gameKey in setOf("gomoku", "jungle", "xiangqi", "reversi")
     val showLastMark = online
     val showSound = gameKey == "fish" || gameKey == "melon"   // 有音效的游戏才显示（melon M13 落地）
-    val showSize = gameKey == "gomoku"
+    val showSize = gameKey == "gomoku" || gameKey == "reversi"   // 可变盘面两款（档位不同）
     val showForbidden = gameKey == "gomoku"
     val showMode = gameKey == "armychess"
     val showTimers = online
+    // 盘面档位按游戏分流（与服务端 ClampSize 同口径）
+    val sizeOpts = if (gameKey == "reversi") REVERSI_SIZES else BOARD_SIZES
 
     val rebuildChanged = (showSize && r.size != initialRules.size) ||
         (showForbidden && r.forbidden != initialRules.forbidden) ||
@@ -1121,14 +1165,15 @@ private fun GameRulesSheet(
             if (showTapConfirm) SwitchRow(title = "落子确认", checked = d.tapConfirm, onChange = { d = d.copy(tapConfirm = it) })
             if (showCoord) SwitchRow(title = "坐标显示", checked = d.showCoord, onChange = { d = d.copy(showCoord = it) })
             if (showLastMark) SwitchRow(title = "最后落子标记", checked = d.lastMark, onChange = { d = d.copy(lastMark = it) })
+            if (showTapConfirm) SwitchRow(title = "落子震动", checked = d.vibrate, onChange = { d = d.copy(vibrate = it) })
             if (showSound) SwitchRow(title = "音效", checked = d.sound, onChange = { d = d.copy(sound = it) })
 
             if (showSize) {
                 OptionChips(
                     title = "盘面",
-                    options = BOARD_SIZES.map { "$it 路" },
-                    selectedIndex = BOARD_SIZES.indexOf(r.size).coerceAtLeast(0),
-                    onPick = { r = r.copy(size = BOARD_SIZES[it]) },
+                    options = sizeOpts.map { if (gameKey == "reversi") "$it×$it" else "$it 路" },
+                    selectedIndex = sizeOpts.indexOf(r.size).coerceAtLeast(0),
+                    onPick = { r = r.copy(size = sizeOpts[it]) },
                 )
             }
             if (showForbidden) {
@@ -1585,19 +1630,24 @@ private fun RoomBoard(
 ) {
     val p = palette
     val st = dto.state
+    // 视角对调：上方座（side 2）在象棋/斗兽棋/军旗（明棋+暗棋）看到的棋盘上下翻转
+    // （己方恒在下半区，与网页 games.js flipView 同规）；翻棋混布盘不翻；0 = 旁观不翻
+    val flip = dto.mySide == 2 && dto.gameKey in setOf("xiangqi", "jungle", "armychess") &&
+        !(dto.gameKey == "armychess" && st?.mode == "fanqi")
     when (dto.gameKey) {
         "gomoku" -> Board(dto = dto, n = n, prefs = prefs, onTap = onTap)
         "reversi" -> {
             val evs = (st?.events ?: emptyList()).map { e ->
                 buildMap<String, Any?> { put("t", e.t); put("s", e.s); put("x", e.x); put("y", e.y) }
             }
+            val rvSize = st?.size ?: 8   // 盘面快照（6/8/10/12，缺省 8）
             ReversiBoard(
-                board = buildReversiBoard(evs),
+                board = buildReversiBoard(evs, rvSize),
                 lastMove = st?.lastMove?.let { it.tx to it.ty },
                 showCoord = prefs.showCoord, lastMark = prefs.lastMark,
                 mySide = dto.mySide, myTurn = dto.myTurn, onTap = onTap,
                 tapConfirm = prefs.tapConfirm, revision = dto.revision,
-                lastFlips = reversiLastFlips(evs),
+                lastFlips = reversiLastFlips(evs, rvSize),
             )
         }
         "jungle" -> JungleBoard(
@@ -1606,7 +1656,7 @@ private fun RoomBoard(
             showCoord = prefs.showCoord, lastMark = prefs.lastMark, onTap = onTap,
             selected = selected, hints = hints, anim = anim,
             ghost = ghostPiece?.let { JunglePiece(it.x, it.y, it.side, it.rank?.jsonPrimitive?.intOrNull ?: 0) },
-            ghostAlpha = ghostAlpha,
+            ghostAlpha = ghostAlpha, flip = flip,
         )
         "xiangqi" -> XiangqiBoard(
             pieces = st?.pieces?.map { XiangqiPiece(it.x, it.y, it.side, it.type) } ?: emptyList(),
@@ -1615,7 +1665,7 @@ private fun RoomBoard(
             showCoord = prefs.showCoord, lastMark = prefs.lastMark, onTap = onTap,
             selected = selected, hints = hints, anim = anim,
             ghost = ghostPiece?.let { XiangqiPiece(it.x, it.y, it.side, it.type) },
-            ghostAlpha = ghostAlpha,
+            ghostAlpha = ghostAlpha, flip = flip,
         )
         "ludo" -> LudoBoard(
             pieces = st?.pieces?.map { LudoPiece(it.side, it.p, it.pos) } ?: emptyList(),
@@ -1638,7 +1688,7 @@ private fun RoomBoard(
             showCoord = prefs.showCoord, lastMark = prefs.lastMark,
             onTap = onTap, selected = selected, hints = hints, anim = anim,
             ghost = ghostPiece?.let { ArmyChessPiece(it.x, it.y, it.side, it.rank?.jsonPrimitive?.contentOrNull, it.hidden) },
-            ghostAlpha = ghostAlpha,
+            ghostAlpha = ghostAlpha, flip = flip,
         )
         else -> Text("此游戏的棋盘暂不支持", color = p.textSub, fontSize = 14.sp)
     }

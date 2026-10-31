@@ -944,6 +944,8 @@ data class GameStateDto(
     val inCheck: Boolean = false,
     val lastRoll: Int? = null,
     val needRoll: Boolean = false,
+    /** 黑白棋：盘面大小（6/8/10/12；建房快照，缺省 8） */
+    val size: Int? = null,
     /** 飞行棋：本 roll 下可走的机号（服务端算好，双端高亮直接消费） */
     val movable: List<Int> = emptyList(),
     /** 可走提示（Batch D）："x,y" → 合法落点 [[tx,ty],…]，只在我方回合下发 */

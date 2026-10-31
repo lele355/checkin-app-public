@@ -232,7 +232,7 @@ private val Clay = Palette(
     cardBrush = Brush.linearGradient(listOf(c(0xFFFFFFFF), c(0xFFFDF1F6))),
     cardSoft = c(0xFFFBE7F0),
     topBar = c(0xFFFFFFFF, .78f),
-    sideBar = c(0xFFFFFFFF, .70f),
+    sideBar = c(0xFFFDF5F8),   // 站主定 2026-10-31：粘土拟态侧栏改不透明（原 .70f 半透明）
     text = c(0xFF831843),
     textSub = c(0xFF9D4869),
     textWeak = c(0xFFC68AA4),
@@ -360,7 +360,7 @@ private fun applyTone(base: Palette, tone: String): Palette {
             base.copy(
                 bg = soft, bgBrush = bg,
                 card = c(0xFFFFFFFF), cardBrush = card, cardSoft = soft,
-                topBar = c(0xFFFFFFFF, .78f), sideBar = c(0xFFFFFFFF, .70f),
+                topBar = c(0xFFFFFFFF, .78f), sideBar = c(0xFFFDF5F8),   // 侧栏不透明（2026-10-31 站主定）
             )
         }
     }

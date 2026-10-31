@@ -176,7 +176,7 @@ fun MelonGame(
                     for (b in engine.bodies) {
                         val age = engine.time - b.born
                         val sc = if (age in 0f..0.2f) 0.6f + 0.4f * (age / 0.2f) else 1f
-                        drawFruit(fruitIcons, b.x * s, b.y * s, b.level, b.r * s * sc, b.angle)
+                        drawFruit(fruitIcons, b.x * s, b.y * s, b.level, b.r * s * sc, 0f)
                     }
                     val fit2 = flashes.iterator()
                     while (fit2.hasNext()) {
@@ -209,13 +209,9 @@ fun MelonGame(
             }
         }
 
+        // 排行榜弹窗化（2026-10-31 站主定：内联面板 → 弹窗；与网页 Solo 同交互）
         leaderboard?.let { lb ->
-            Spacer(Modifier.height(10.dp))
-            Text("排行榜", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = p.text)
-            lb.items.forEach {
-                Text("${it.rank}. ${it.name} · ${it.bestScore}", fontSize = 13.sp, color = p.textSub)
-            }
-            Text("我的最高分 ${lb.mine.bestScore} · 第 ${lb.mine.rank} 名", fontSize = 13.sp, color = p.textSub)
+            cn.anlele.checkin.ui.components.LeaderboardSheet(lb = lb, onDismiss = { leaderboard = null })
         }
     }
 }
@@ -359,7 +355,7 @@ internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Lo
         val jt = -vt * FRICTION / (1 / ma + 1 / mb)
         a.vx -= jt * tx / ma; a.vy -= jt * ty / ma
         b.vx += jt * tx / mb; b.vy += jt * ty / mb
-        a.av += vt / a.r * 0.02f; b.av += vt / b.r * 0.02f
+        a.av = (a.av + vt / a.r * 0.02f).coerceIn(-6f, 6f); b.av = (b.av + vt / b.r * 0.02f).coerceIn(-6f, 6f)
     }
 
     private fun wallResolve(b: Body) {
@@ -385,6 +381,10 @@ internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Lo
                 b.vy += GRAVITY * sub
                 b.x += b.vx * sub; b.y += b.vy * sub
                 b.angle += b.av * sub
+                // 角速度阻尼 + 限幅（2026-10-31 修「水果不停快速旋转」：接触每帧累加 av 且空中无阻尼 → 无限自旋）
+                b.av *= 0.99f
+                if (abs(b.av) < 0.1f) b.av = 0f
+                if (b.angle > 6.283185f) b.angle -= 6.283185f else if (b.angle < -6.283185f) b.angle += 6.283185f
                 b.age += sub
                 if (b.lock > 0) b.lock--
             }
@@ -406,10 +406,12 @@ internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Lo
             }
             if (cool > 0) cool -= sub
 
-            // 警戒线：质心越线且静止 > 缓冲 → 判负（M10）
+            // 警戒线：**顶部边缘**越线且静止 > 缓冲 → 判负
+            // （2026-10-31 修：原用质心 b.y，堆高时顶部越线但质心仍在线下 → 永远不判负；
+            //   速度门限 30→60 容忍堆叠抖动，age>1.5s 兜底；落体高速穿线由 age/speed 双门挡住）
             var resting = false
             for (b in bodies) {
-                if (b.age > 0.4f && b.y < WARN_Y && abs(b.vx) + abs(b.vy) < 30f) { resting = true; break }
+                if (b.age > 0.4f && (b.y - b.r) < WARN_Y && (abs(b.vx) + abs(b.vy) < 60f || b.age > 1.5f)) { resting = true; break }
             }
             overTimer = if (resting) overTimer + sub else maxOf(0f, overTimer - sub * 2)
             if (overTimer >= OVER_GRACE) over = true
