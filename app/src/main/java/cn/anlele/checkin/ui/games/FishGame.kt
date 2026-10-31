@@ -505,13 +505,13 @@ internal class FishEngine(val width: Float = W, val height: Float = H) {
         private set
 
     /** 摇杆推进（dirX/dirY 为归一化推杆偏移 -1..1，JoystickPad 已除摇杆半径）。
-     *  推量 → 速度 30%~100% + 步长 28~62px；20% 以下死区防误触。 */
+     *  推量 → 速度 15%~50%（站主三轮定档：摇杆最高速=触摸直控一半）+ 步长 28~62px；20% 以下死区。 */
     fun nudge(dirX: Float, dirY: Float) {
         val d = hypot(dirX, dirY)   // 0..1 归一化推量
         if (d < 0.2f) return        // 死区 20%（按比例，不随屏幕密度漂移）
         val amp = ((d - 0.2f) / 0.8f).coerceIn(0f, 1f)
-        joySpeed = 0.3f + 0.7f * amp        // 轻推 30% 速，满推才全速
-        val dist = 28f + 34f * amp          // 目标步长随推量
+        joySpeed = 0.15f + 0.35f * amp       // 轻推 15% 速、满推 50% 速（整体慢档）
+        val dist = 28f + 34f * amp           // 目标步长随推量
         setTarget(px + dirX / d * dist, py + dirY / d * dist)
     }
 
