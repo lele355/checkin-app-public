@@ -810,6 +810,8 @@ data class GameDisplayDto(
     val showCoord: Boolean = true,
     val lastMark: Boolean = true,
     val vibrate: Boolean = true,
+    /** 音效（有音效的游戏才显示该项） */
+    val sound: Boolean = true,
 )
 
 /** 五子棋杂项设置（规则默认）：建房那一刻快照进房间，之后双方共享 */
@@ -819,6 +821,8 @@ data class GameRuleDefaultsDto(
     val forbidden: Boolean = false,
     val moveTimeoutSec: Int = 0,
     val totalTimeoutSec: Int = 0,
+    /** 军旗模式（仅军旗）：open=明棋 / dark=暗棋 / fanqi=翻棋 */
+    val mode: String = "open",
 )
 
 /** 游戏目录里的一条 —— /Games 入口第一屏的卡片 */
@@ -891,15 +895,27 @@ data class GameRoomDto(
     val myName: String = "",
     val opponentName: String = "",
     val isAi: Boolean = false,
+    /** AI 难度（1..5，isAi 时有意义；重建换房时沿用） */
+    val aiLevel: Int = 2,
     val opponentOnline: Boolean = false,
     val myTurn: Boolean = false,
     val canJoin: Boolean = false,
     /** 飞行棋多座：每座 side/color/name/isAi/isMe/active/usedMs/online */
     val players: List<LudoPlayerDto>? = null,
+    /** 重建换房握手（设置重建层改动 → 一键重建）：askSide 发起方 / vote 对方态度 / doneId 新房 */
+    val rebuild: RebuildHandshakeDto? = null,
     /** per-game 状态（state.events / state.pieces / state.lastMove 等） */
     val state: GameStateDto? = null,
     val createdAt: String = "",
     val updatedAt: String = "",
+)
+
+/** 重建换房握手（走查表 §3） */
+@Serializable
+data class RebuildHandshakeDto(
+    val askSide: Int = 0,
+    val vote: Int? = null,
+    val doneId: Int = 0,
 )
 
 @Serializable
@@ -930,6 +946,8 @@ data class GameStateDto(
     val needRoll: Boolean = false,
     /** 飞行棋：本 roll 下可走的机号（服务端算好，双端高亮直接消费） */
     val movable: List<Int> = emptyList(),
+    /** 可走提示（Batch D）："x,y" → 合法落点 [[tx,ty],…]，只在我方回合下发 */
+    val hints: Map<String, List<List<Int>>>? = null,
     /** 军旗：open=明棋 / dark=暗棋 / fanqi=翻棋 */
     val mode: String? = null,
     /** 军旗明棋布阵期：每方是否已部署 */
@@ -995,8 +1013,9 @@ data class GameBattleDto(
 
 @Serializable
 data class GameLastMoveDto(
-    val fx: Int = 0,
-    val fy: Int = 0,
+    /** 起点（翻棋翻子没有起点 → null） */
+    val fx: Int? = null,
+    val fy: Int? = null,
     val tx: Int = 0,
     val ty: Int = 0,
 )

@@ -179,3 +179,63 @@ fun GridBoardRect(
         drawOverlay(geom)
     }
 }
+
+/** 走子滑动动画（Batch D）：from → to 插值 + 落点回弹缩放。progress 0..1.3（1 之后是回弹段） */
+data class BoardAnim(
+    val fromX: Int, val fromY: Int, val toX: Int, val toY: Int, val progress: Float,
+) {
+    val x: Float get() = fromX + (toX - fromX) * progress.coerceAtMost(1f)
+    val y: Float get() = fromY + (toY - fromY) * progress.coerceAtMost(1f)
+
+    /** 滑行微缩 → 落点回弹（1.15 → 1） */
+    val scale: Float
+        get() = if (progress <= 1f) 0.92f + 0.08f * progress
+        else 1f + 0.15f * (1f - ((progress - 1f) / 0.3f)).coerceAtLeast(0f)
+}
+
+/**
+ * 动画驱动盒（Batch D）：对局 revision 变化时按 lastMove 启动滑动动画；
+ * 吃子在目标点留淡出鬼影。RoomContent 每帧 advance()。
+ */
+class AnimBox {
+    var anim: BoardAnim? = null
+        private set
+    /** 吃子鬼影：被吃的那枚棋子（原始 DTO，各棋盘自己映射内部类型）+ 淡出透明度 */
+    var ghostPiece: cn.anlele.checkin.data.GamePieceDto? = null
+        private set
+    var ghostAlpha: Float = 0f
+        private set
+    private var prev: List<cn.anlele.checkin.data.GamePieceDto> = emptyList()
+    var done: Boolean = true
+        private set
+
+    /** 上一状态在 (x,y) 的棋子快照（吃子鬼影源） */
+    fun pieceAt(x: Int, y: Int): cn.anlele.checkin.data.GamePieceDto? = prev.find { it.x == x && it.y == y }
+
+    fun onNewState(
+        lastMove: cn.anlele.checkin.data.GameLastMoveDto?,
+        pieces: List<cn.anlele.checkin.data.GamePieceDto>,
+    ) {
+        val lm = lastMove
+        val fx = lm?.fx
+        val fy = lm?.fy
+        val captured = if (lm != null && fx != null && fy != null) pieceAt(lm.tx, lm.ty) else null
+        prev = pieces
+        ghostAlpha = 0f
+        ghostPiece = captured
+        if (lm == null || fx == null || fy == null || (fx == lm.tx && fy == lm.ty)) {
+            anim = null; done = true; return
+        }
+        if (captured != null) ghostAlpha = 1f
+        anim = BoardAnim(fx, fy, lm.tx, lm.ty, 0f)
+        done = false
+    }
+
+    fun advance(elapsedMs: Float) {
+        val a = anim ?: run { done = true; return }
+        val p = (elapsedMs / 200f).coerceAtMost(1.3f)
+        anim = a.copy(progress = p)
+        ghostAlpha = (1f - elapsedMs / 240f).coerceAtLeast(0f)
+        if (elapsedMs > 280f) { done = true; anim = null; ghostAlpha = 0f }
+    }
+}

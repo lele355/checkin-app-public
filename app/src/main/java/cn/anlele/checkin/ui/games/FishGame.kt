@@ -31,6 +31,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,6 +48,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
@@ -54,6 +57,9 @@ import kotlin.math.sin
  *   3 条命 + 被吃后 2 秒无敌（F2）；鱼群两侧穿屏（F3）；平滑跟随 + 转身 + 冲刺（F4）；
  *   多鱼种轮廓（F5）；海底背景（F6）；档位计分 + 连击倍率（F7）；同级可吃（F8）；
  *   生命/成长条/图例（F9）；珍珠加分（F10 先行）。
+ *   Batch D：F11 关卡制（随分数/时间提速加密度，图形提示不加文字）；F12 天敌危害
+ *   （水母、鲨鱼碰触扣命 + 无敌帧，HUD 图形标示危险鱼）；F13 音效（吃鱼/受伤/冲刺/结束，
+ *   GameSfx 合成音）；P3-3 教程 7 档命名与引擎同规。
  * 纯前端算分，结束时上报最高分（服务端幂等 max）。
  */
 @Composable
@@ -69,6 +75,8 @@ fun FishGame(
     var over by remember { mutableStateOf(false) }
     var leaderboard by remember { mutableStateOf<LeaderboardDto?>(null) }
     var frameTick by remember { mutableIntStateOf(0) }
+    // 音效事件计数快照（F13）：帧循环观测增量 → GameSfx 播放
+    val prevEv = remember { IntArray(4) }
 
     LaunchedEffect(over, engine) {
         if (over) return@LaunchedEffect
@@ -78,6 +86,10 @@ fun FishGame(
                 val dt = if (last == 0L) 1f / 60f else ((ts - last) / 1_000_000_000f).coerceAtMost(0.05f)
                 last = ts
                 if (!engine.over) engine.step(dt)
+                if (engine.evEat != prevEv[0]) { prevEv[0] = engine.evEat; GameSfx.play("eat") }
+                if (engine.evHurt != prevEv[1]) { prevEv[1] = engine.evHurt; GameSfx.play("hurt") }
+                if (engine.evDash != prevEv[2]) { prevEv[2] = engine.evDash; GameSfx.play("dash") }
+                if (engine.evEnd != prevEv[3]) { prevEv[3] = engine.evEnd; GameSfx.play("end") }
                 score = engine.score
                 if (engine.over && !over) {
                     over = true
@@ -98,6 +110,7 @@ fun FishGame(
         over = false
         leaderboard = null
         frameTick = 0
+        prevEv.fill(0)
     }
 
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -160,7 +173,7 @@ fun FishGame(
                         val sway = sin(engine.time * 1.2f + w.phase) * 10f
                         val path = Path().apply {
                             moveTo(w.x * sx, size.height)
-                            quadraticBezierTo(w.x * sx + sway * sx, size.height - w.h * 0.6f * sy, w.x * sx + sway * 1.6f * sx, size.height - w.h * sy)
+                            quadraticTo(w.x * sx + sway * sx, size.height - w.h * 0.6f * sy, w.x * sx + sway * 1.6f * sx, size.height - w.h * sy)
                         }
                         drawPath(path, Color(0xBF1B5E20), style = Stroke(5f * sx))
                     }
@@ -175,11 +188,12 @@ fun FishGame(
                         drawCircle(Color(0xCCFFFFFF), (3f + sin(po.t) * 1.2f) * 0.45f * sx, Offset((po.x - 1.2f) * sx, (po.y - 1.2f) * sy))
                     }
 
-                    // 其它鱼（危险红 / 可吃蓝绿，F5 多轮廓）
+                    // 其它鱼：普通鱼（可吃蓝绿 / 更大红）+ 天敌（水母/鲨恒红带刺，F12）
                     for (f in engine.fishes) {
-                        val danger = f.level > engine.level
-                        val color = if (danger) Color(0xFFEF5350) else if (f.kind == 3) Color(0xFF80DEEA) else Color(0xFF4FC3F7)
-                        drawFishShape(f.x * sx, f.y * sy, f.level, f.dir, color, f.kind, sx)
+                        val enemy = f.kind >= 3
+                        val danger = enemy || f.level > engine.level
+                        val color = if (danger) Color(0xFFEF5350) else Color(0xFF4FC3F7)
+                        drawFishShape(f.x * sx, f.y * sy, f.level, f.dir, color, f.kind, sx, spiky = enemy)
                     }
 
                     // 玩家鱼（无敌闪烁，F2）
@@ -188,17 +202,62 @@ fun FishGame(
                         drawFishShape(engine.px * sx, engine.py * sy, engine.level, engine.dir, Color(0xFFFFB300), 4, sx)
                     }
 
-                    // HUD（F9）：生命 / 成长条 / 图例 / 连击
-                    drawRect(Color(0x59000000), topLeft = Offset(8f * sx, 8f * sy), size = androidx.compose.ui.geometry.Size(200f * sx, 26f * sy))
-                    for (i in 0 until 3) {
-                        drawCircle(if (i < engine.lives) Color(0xFFE53935) else Color(0x40E53935), 6f * sx, Offset((20f + i * 20f) * sx, 21f * sy))
+                    // 升关冲击波（F11 图形提示）
+                    if (engine.stageFlash > 0f) {
+                        val a = engine.stageFlash / 1.2f
+                        val ring = (10f + engine.level * 5f) * sx + 20f * sx + (1.2f - engine.stageFlash) * 60f * sx
+                        drawCircle(Color(0xFFFFD54F).copy(alpha = 0.6f * a), ring, Offset(engine.px * sx, engine.py * sy), style = Stroke(3f * sx))
+                        drawCircle(Color(0xFFFFD54F).copy(alpha = 0.6f * a), ring * 0.7f, Offset(engine.px * sx, engine.py * sy), style = Stroke(3f * sx))
                     }
-                    drawRect(Color(0x59FFFFFF), topLeft = Offset(82f * sx, 16f * sy), size = androidx.compose.ui.geometry.Size(118f * sx, 10f * sy))
+
+                    // HUD（F9/F11/F12）：关卡格 / 生命 / 成长条 / 图例 —— 全图形，不加文字
+                    // 关卡格（F11）：顶部一排菱形，升关点亮 + 光圈
+                    for (i in 0 until FishEngine.STAGE_MAX) {
+                        val cx = size.width / 2f - (FishEngine.STAGE_MAX - 1) * 7f * sx + i * 14f * sx
+                        val cy = 5f * sy
+                        val hs = if (engine.stageFlash > 0f && i < engine.stage) 5.2f * sx else 4f * sx
+                        val pip = Path().apply {
+                            moveTo(cx, cy - hs); lineTo(cx + hs, cy); lineTo(cx, cy + hs); lineTo(cx - hs, cy); close()
+                        }
+                        drawPath(pip, if (i < engine.stage) Color(0xFFFFD54F) else Color(0x47FFFFFF))
+                        if (engine.stageFlash > 0f && i == engine.stage - 1) {
+                            drawCircle(
+                                Color(0xFFFFD54F).copy(alpha = 0.5f * engine.stageFlash / 1.2f),
+                                hs + 3f * sx + 4f * sx * (1.2f - engine.stageFlash),
+                                Offset(cx, cy),
+                                style = Stroke(1.5f * sx),
+                            )
+                        }
+                    }
+                    // 生命（F9 图形心形）+ 成长条
+                    drawRect(Color(0x59000000), topLeft = Offset(8f * sx, 8f * sy), size = androidx.compose.ui.geometry.Size(176f * sx, 26f * sy))
+                    for (i in 0 until 3) {
+                        drawHeartShape((22f + i * 20f) * sx, 21f * sy, 7f * sx, if (i < engine.lives) Color(0xFFE53935) else Color(0x40E53935))
+                    }
+                    drawRect(Color(0x59FFFFFF), topLeft = Offset(84f * sx, 16f * sy), size = androidx.compose.ui.geometry.Size(92f * sx, 10f * sy))
                     val growFrac = min(1f, engine.growth.toFloat() / engine.growthNeed())
-                    drawRect(Color(0xFFFFD54F), topLeft = Offset(82f * sx, 16f * sy), size = androidx.compose.ui.geometry.Size(118f * sx * growFrac, 10f * sy))
+                    drawRect(Color(0xFFFFD54F), topLeft = Offset(84f * sx, 16f * sy), size = androidx.compose.ui.geometry.Size(92f * sx * growFrac, 10f * sy))
+                    // 图例（F12 图形标示）：绿小鱼=可吃 / 红刺鱼=危险
                     drawRect(Color(0x59000000), topLeft = Offset((size.width - 168f * sx), 8f * sy), size = androidx.compose.ui.geometry.Size(160f * sx, 26f * sy))
-                    drawCircle(Color(0xFFC8E6C9), 5f * sx, Offset(size.width - 152f * sx, 21f * sy))
-                    drawCircle(Color(0xFFFFCDD2), 5f * sx, Offset(size.width - 22f * sx, 21f * sy))
+                    drawFishShape(size.width - 138f * sx, 21f * sy, 0, 1, Color(0xFFC8E6C9), 0, sx * 0.6f)
+                    drawFishShape(size.width - 38f * sx, 21f * sy, 0, 1, Color(0xFFEF5350), 4, sx * 0.6f, spiky = true)
+                    // 连击（F7）：与网页同款角标（0.1 双端一致）
+                    if (engine.chain >= 3) {
+                        drawRect(Color(0x59000000), topLeft = Offset(size.width / 2f - 36f * sx, 42f * sy), size = androidx.compose.ui.geometry.Size(72f * sx, 22f * sy))
+                        drawIntoCanvas { c ->
+                            val paint = android.graphics.Paint().apply {
+                                color = android.graphics.Color.parseColor("#FFEE58")
+                                textSize = 15f * sy
+                                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                                isAntiAlias = true
+                                textAlign = android.graphics.Paint.Align.CENTER
+                            }
+                            c.nativeCanvas.drawText(
+                                "连击 ×" + if (engine.chain >= 6) "2" else "1.5",
+                                size.width / 2f, 58f * sy, paint,
+                            )
+                        }
+                    }
                 }
             }
             if (over) {
@@ -224,22 +283,22 @@ fun FishGame(
     }
 }
 
-/** 多鱼种轮廓（F5）：0 椭圆身 / 1 尖嘴梭鱼 / 2 鳐形 / 3 水母 / 4 鲨形 */
-private fun DrawScope.drawFishShape(x: Float, y: Float, level: Int, facing: Int, color: Color, kind: Int, scale: Float) {
+/** 多鱼种轮廓（F5）：0 椭圆身 / 1 尖嘴梭鱼 / 2 鳐形 / 3 水母 / 4 鲨形；spiky=天敌尖刺标记（F12） */
+private fun DrawScope.drawFishShape(x: Float, y: Float, level: Int, facing: Int, color: Color, kind: Int, scale: Float, spiky: Boolean = false) {
     val r = (10f + level * 5f) * scale
     val dir = if (facing >= 0) 1f else -1f
     when (kind) {
         3 -> { // 水母：伞盖 + 触手
             val dome = Path().apply {
                 addArc(androidx.compose.ui.geometry.Rect(x - r, y - r, x + r, y + r), 180f, 180f)
-                quadraticBezierTo(x + r * 0.7f * dir, y + r * 0.55f, x, y + r * 0.5f)
-                quadraticBezierTo(x - r * 0.7f * dir, y + r * 0.55f, x - r, y)
+                quadraticTo(x + r * 0.7f * dir, y + r * 0.55f, x, y + r * 0.5f)
+                quadraticTo(x - r * 0.7f * dir, y + r * 0.55f, x - r, y)
             }
             drawPath(dome, color)
             for (i in -2..2) {
                 val path = Path().apply {
                     moveTo(x + i * r * 0.3f, y + r * 0.45f)
-                    quadraticBezierTo(x + i * r * 0.4f, y + r * 0.9f, x + i * r * 0.25f, y + r * 1.3f)
+                    quadraticTo(x + i * r * 0.4f, y + r * 0.9f, x + i * r * 0.25f, y + r * 1.3f)
                 }
                 drawPath(path, color, style = Stroke(2f * scale))
             }
@@ -247,8 +306,8 @@ private fun DrawScope.drawFishShape(x: Float, y: Float, level: Int, facing: Int,
         2 -> { // 鳐：菱形身 + 长尾
             val body = Path().apply {
                 moveTo(x + r * 1.1f * dir, y)
-                quadraticBezierTo(x, y - r * 0.95f, x - r * 1.05f * dir, y)
-                quadraticBezierTo(x, y + r * 0.95f, x + r * 1.1f * dir, y)
+                quadraticTo(x, y - r * 0.95f, x - r * 1.05f * dir, y)
+                quadraticTo(x, y + r * 0.95f, x + r * 1.1f * dir, y)
                 close()
             }
             drawPath(body, color)
@@ -293,16 +352,47 @@ private fun DrawScope.drawFishShape(x: Float, y: Float, level: Int, facing: Int,
     // 眼睛
     drawCircle(Color.White, r * 0.2f, Offset(x + r * 0.38f * dir, y - r * 0.22f))
     drawCircle(Color.Black, r * 0.09f, Offset(x + r * 0.43f * dir, y - r * 0.22f))
+    // 天敌尖刺标记（F12）：红鱼 + 刺，HUD/场上同一套图形语言
+    if (spiky) {
+        for (sp in -2..2) {
+            val ang = (-Math.PI / 2 + sp * 0.5).toFloat()
+            val bx = x + cos(ang) * r * 1.05f
+            val by = y + sin(ang) * r * 1.05f
+            val tX = x + cos(ang) * r * 1.35f
+            val tY = y + sin(ang) * r * 1.35f
+            val spike = Path().apply {
+                moveTo(bx - r * 0.12f, by)
+                lineTo(tX, tY)
+                lineTo(bx + r * 0.12f, by)
+                close()
+            }
+            drawPath(spike, color)
+        }
+    }
 }
 
-/** 大鱼吃小鱼引擎 —— 与网页 fish.js 同规则（改一处必须同步另一处） */
-private class FishEngine(val width: Float = W, val height: Float = H) {
+/** 心形生命图钉（F9 图形，不加文字）。 */
+private fun DrawScope.drawHeartShape(cx: Float, cy: Float, s: Float, color: Color) {
+    val path = Path().apply {
+        moveTo(cx, cy + s * 0.75f)
+        cubicTo(cx - s * 1.4f, cy - s * 0.25f, cx - s * 0.55f, cy - s * 1.05f, cx, cy - s * 0.35f)
+        cubicTo(cx + s * 0.55f, cy - s * 1.05f, cx + s * 1.4f, cy - s * 0.25f, cx, cy + s * 0.75f)
+        close()
+    }
+    drawPath(path, color)
+}
+
+/** 大鱼吃小鱼引擎 —— 与网页 fish.js 同规则（改一处必须同步另一处）。internal 供 JVM 压力测试。 */
+internal class FishEngine(val width: Float = W, val height: Float = H) {
     companion object {
         const val W = 360f
         const val H = 480f
         const val MAX_LEVEL = 6
-        val VALUES = intArrayOf(50, 50, 150, 400, 900, 1800, 1800)   // 档位分（F7）
+        val VALUES = intArrayOf(50, 150, 400, 900, 1800, 3600, 7200)  // 普通鱼按体型档计分（P3-3：7 档命名）
         val LEVEL_WEIGHTS = intArrayOf(3, 3, 2, 2, 1, 1, 1)          // 小鱼多大鱼少
+        const val STAGE_MAX = 6                                       // 关卡上限（F11）
+        const val STAGE_SCORE_STEP = 1000                             // 每 1000 分 +1 关（F11）
+        const val STAGE_TIME_STEP = 120f                              // 每 120 秒 +1 关（F11）
     }
 
     class Fish(
@@ -325,6 +415,12 @@ private class FishEngine(val width: Float = W, val height: Float = H) {
     var invuln = 0f; private set
     var chain = 0; private set
     var time = 0f; private set
+    var stage = 1; private set                       // 关卡（F11）
+    var stageFlash = 0f; private set                 // 升关图形提示计时（F11）
+    var evEat = 0; private set                       // 音效事件计数（F13）：UI 观测增量播放
+    var evHurt = 0; private set
+    var evDash = 0; private set
+    var evEnd = 0; private set
     private var tx = W / 2
     private var ty = H / 2
     private var chainTimer = 0f
@@ -347,6 +443,10 @@ private class FishEngine(val width: Float = W, val height: Float = H) {
     private fun fishValue(l: Int) = VALUES[min(l, 6)]
     fun comboMult(): Double = if (chain >= 6) 2.0 else if (chain >= 3) 1.5 else 1.0
 
+    /** 关卡（F11）：随分数与时间推进，封顶 STAGE_MAX。与网页 fish.js stageOf 同式。 */
+    fun stageOf(sc: Int, t: Float): Int =
+        1 + min(STAGE_MAX - 1, sc / STAGE_SCORE_STEP + (t / STAGE_TIME_STEP).toInt())
+
     private fun rollLevel(): Int {
         val total = LEVEL_WEIGHTS.sum()
         var r = (0 until total).random()
@@ -356,6 +456,12 @@ private class FishEngine(val width: Float = W, val height: Float = H) {
 
     private fun spawnFish(side: Int) {
         val lv = rollLevel()
+        val kind = if (lv >= 3 && Math.random() < 0.5) {
+            // 天敌（F12）：水母 / 鲨 —— 恒危险、不可吃；0~2 档永远是普通鱼（新手期只按体型判定）
+            if (Math.random() < 0.5) 3 else 4
+        } else {
+            (0..2).random()                          // 普通鱼三种轮廓（F5）
+        }
         val fromLeft = if (side == -1) Math.random() < 0.5 else side == 0
         val f = Fish(
             x = if (fromLeft) -radius(lv) - 10f else width + radius(lv) + 10f,
@@ -363,7 +469,7 @@ private class FishEngine(val width: Float = W, val height: Float = H) {
             baseY = 0f, phase = Math.random().toFloat() * 6.28f,
             level = lv, dir = if (fromLeft) 1 else -1,
             speed = 0.7f + lv * 0.12f + Math.random().toFloat() * 0.3f,
-            kind = lv % 5,
+            kind = kind,                             // 0 椭圆 / 1 梭鱼 / 2 鳐 / 3 水母[天敌] / 4 鲨[天敌]
         )
         f.baseY = f.y
         if (abs(f.x - px) < 130f && abs(f.y - py) < 90f) f.y = if (f.y < py) 50f else height - 90f
@@ -394,10 +500,17 @@ private class FishEngine(val width: Float = W, val height: Float = H) {
         tx = px + dx / d * 130f
         ty = py + dy / d * 130f
         dashCd = 1.2f
+        evDash++
     }
 
     fun step(dt: Float) {
+        if (over) return
         time += dt
+        // F11 关卡推进：随分数与时间提速加密度；升关用图形冲击波提示（不加文字）
+        val ns = stageOf(score, time)
+        if (ns > stage) { stage = ns; stageFlash = 1.2f }
+        if (stageFlash > 0f) stageFlash -= dt
+        val speedMult = 1f + 0.12f * (stage - 1)
         // 平滑跟随 + 转身（F4）
         val k = min(1f, dt * 8f)
         val nx = px + (tx - px) * k
@@ -409,19 +522,23 @@ private class FishEngine(val width: Float = W, val height: Float = H) {
         if (dashCd > 0f) dashCd -= dt
         if (chainTimer > 0f) { chainTimer -= dt; if (chainTimer <= 0f) chain = 0 }
 
-        // 鱼群穿屏（F3）
-        val it = fishes.iterator()
-        while (it.hasNext()) {
-            val f = it.next()
-            f.x += f.dir * f.speed * 60f * dt
+        // 鱼群穿屏（F3）。注意：迭代中不能直接 spawnFish（List.add 触发
+        // ConcurrentModificationException —— 真机 5 秒闪退根因，首条鱼出屏即炸）。
+        val respawns = mutableListOf<Int>()
+        val eit = fishes.iterator()
+        while (eit.hasNext()) {
+            val f = eit.next()
+            f.x += f.dir * f.speed * speedMult * 60f * dt
             f.phase += dt * 1.5f
             f.y = f.baseY + sin(f.phase) * 12f
             if ((f.dir > 0 && f.x > width + 80f) || (f.dir < 0 && f.x < -80f)) {
-                it.remove()
-                spawnFish(if (f.dir > 0) 1 else 0)
+                eit.remove()
+                respawns.add(if (f.dir > 0) 1 else 0)   // 出屏侧 → 从对侧补入
             }
         }
-        if (fishes.size < 10 && Math.random() < dt * 0.6) spawnSchool()
+        for (side in respawns) spawnFish(side)
+        // 鱼群密度与刷新随关卡提升（F11）
+        if (fishes.size < 10 + 2 * (stage - 1) && Math.random() < dt * (0.6 + 0.15 * (stage - 1))) spawnSchool()
         if (pearls.size < 4 && Math.random() < dt * 0.15) spawnPearl()
 
         for (b in bubbles) {
@@ -438,30 +555,35 @@ private class FishEngine(val width: Float = W, val height: Float = H) {
             if (hypot(po.x - px, po.y - py) < pr + po.r + 2f) {
                 pit.remove()
                 score += 10
+                evEat++
             }
         }
 
-        // 吃鱼 / 被吃（F2/F7/F8）
+        // 吃鱼 / 被吃（F2/F7/F8/F12）。同样：迭代中只 remove，补鱼放到循环外。
+        var eaten = 0
         val fit = fishes.iterator()
         while (fit.hasNext()) {
             val fi = fit.next()
             val rr = radius(fi.level) + pr - 4f
             if (hypot(fi.x - px, fi.y - py) >= rr) continue
-            if (fi.level <= level) {
+            if (fi.kind < 3 && fi.level <= level) {          // 普通鱼：不大于自己可吃（同级可吃）
                 chain++
                 chainTimer = 3f
-                score += (fishValue(fi.level) * comboMult()).toInt()
+                score += (fishValue(fi.level) * comboMult()).roundToInt()   // 防御性统一 round 口径（与网页 Math.round 同规，BUG-2 同款）
                 growth += 1 + fi.level
                 if (level < MAX_LEVEL && growth >= growthNeed()) { growth = 0; level++ }
                 fit.remove()
-                spawnFish(-1)
-            } else if (invuln <= 0f) {
+                eaten++
+                evEat++
+            } else if (invuln <= 0f) {                        // 更大的鱼或天敌（水母/鲨）碰触
                 lives--
-                if (lives <= 0) { over = true; return }
+                evHurt++
+                if (lives <= 0) { over = true; evEnd++; return }
                 invuln = 2f
                 chain = 0
                 px = width / 2; py = height / 2; tx = px; ty = py
             }
         }
+        repeat(eaten) { spawnFish(-1) }
     }
 }

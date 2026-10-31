@@ -84,8 +84,9 @@ fun AppCard(
         m = m.shadow(0.dp, shape, clip = false)
     }
     m = m.clip(shape)
-    m = if (p.cardBrush != null && containerColor == null)
-        m.background(p.cardBrush!!, shape)
+    val brush = p.cardBrush
+    m = if (brush != null && containerColor == null)
+        m.background(brush, shape)
     else
         m.background(containerColor ?: p.card, shape)
 

@@ -16,6 +16,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 
 /**
@@ -32,11 +34,20 @@ fun XiangqiBoard(
     modifier: Modifier = Modifier,
     onTap: ((Int, Int) -> Unit)? = null,
     selected: Pair<Int, Int>? = null,
+    hints: Map<String, List<List<Int>>>? = null,
+    anim: BoardAnim? = null,
+    ghost: XiangqiPiece? = null,
+    ghostAlpha: Float = 0f,
 ) {
     val measurer = rememberTextMeasurer()
-    // 红=帅仕相马车炮兵 / 黑=将士象马车炮卒（下标 = 服务端 PieceType）
-    val redNames = remember { arrayOf("", "帅", "仕", "相", "马", "车", "炮", "兵") }
-    val blackNames = remember { arrayOf("", "将", "士", "象", "马", "车", "炮", "卒") }
+    // 木纹圆饼字子图标（icons-ready 同源，D-5 图标二阶段）：type 1..7 × 红黑两套
+    val pieceIcons = rememberPieceIcons("xiangqi", listOf(
+        "red_shuai", "red_shi", "red_xiang", "red_ma", "red_che", "red_pao", "red_bing",
+        "black_jiang", "black_shi", "black_xiang", "black_ma", "black_che", "black_pao", "black_zu",
+    ))
+    // 图标件名（下标 = 服务端 PieceType）：红=帅仕相马车炮兵 / 黑=将士象马车炮卒
+    val xqIconRed = remember { listOf("", "red_shuai", "red_shi", "red_xiang", "red_ma", "red_che", "red_pao", "red_bing") }
+    val xqIconBlack = remember { listOf("", "black_jiang", "black_shi", "black_xiang", "black_ma", "black_che", "black_pao", "black_zu") }
     Canvas(
         modifier = modifier
             .fillMaxWidth()
@@ -62,6 +73,8 @@ fun XiangqiBoard(
 
         fun px(x: Int) = pad + x * cw
         fun py(y: Int) = pad + y * ch
+        fun pxf(x: Float) = pad + x * cw
+        fun pyf(y: Float) = pad + y * ch
 
         // 背景
         drawRect(Color(0xFFF0D9A8))
@@ -94,17 +107,50 @@ fun XiangqiBoard(
             )
         }
 
-        // 棋子（圆 + 汉字）
+        // 可走提示（Batch D）：绿点=可走，红环=可吃
+        if (selected != null && hints != null) {
+            val key = "${selected.first},${selected.second}"
+            for (tp in hints[key] ?: emptyList()) {
+                val occ = pieces.any { it.x == tp[0] && it.y == tp[1] }
+                if (occ) {
+                    drawCircle(Color(0xFFE53935), radius = r * 1.15f, center = Offset(px(tp[0]), py(tp[1])), style = Stroke(width = 3f))
+                } else {
+                    drawCircle(Color(0xBF2E7D32), radius = r * 0.28f, center = Offset(px(tp[0]), py(tp[1])))
+                }
+            }
+        }
+
+        // 棋子（整枚图标，icons-ready 同源；走子动画插值 + 落点回弹缩放）
         for (p in pieces) {
-            val center = Offset(px(p.x), py(p.y))
-            drawCircle(Color(0xFFF5E6C8), radius = r, center = center)
-            drawCircle(
-                if (p.side == 1) Color(0xFFC62828) else Color(0xFF212121),
-                radius = r, center = center, style = Stroke(width = 2.5f),
-            )
-            val name = (if (p.side == 1) redNames else blackNames).getOrElse(p.type) { "?" }
-            val t = measurer.measure(name, TextStyle(fontSize = (r * 0.9f).sp, color = if (p.side == 1) Color(0xFFC62828) else Color(0xFF212121), fontWeight = FontWeight.Bold))
-            drawText(t, topLeft = Offset(center.x - t.size.width / 2f, center.y - t.size.height / 2f))
+            val isAnim = anim != null && p.x == anim.toX && p.y == anim.toY
+            val center = if (isAnim) Offset(pxf(anim.x), pyf(anim.y)) else Offset(px(p.x), py(p.y))
+            val rr = if (isAnim) r * anim.scale else r
+            val key = (if (p.side == 1) xqIconRed else xqIconBlack).getOrElse(p.type) { "" }
+            val bmp = pieceIcons[key]
+            if (bmp != null) {
+                val side = (rr * 2.2f).toInt().coerceAtLeast(2)   // 图标圆饼约占盒 94%，对齐旧 r
+                drawImage(
+                    bmp,
+                    dstSize = IntSize(side, side),
+                    dstOffset = IntOffset((center.x - side / 2f).toInt(), (center.y - side / 2f).toInt()),
+                )
+            }
+        }
+
+        // 吃子鬼影（Batch D）：被吃子淡出（图标同源）
+        if (ghost != null && ghostAlpha > 0f) {
+            val gc = Offset(px(ghost.x), py(ghost.y))
+            val keyG = (if (ghost.side == 1) xqIconRed else xqIconBlack).getOrElse(ghost.type) { "" }
+            val bmpG = pieceIcons[keyG]
+            if (bmpG != null) {
+                val sideG = (r * 2.2f).toInt().coerceAtLeast(2)
+                drawImage(
+                    bmpG,
+                    dstSize = IntSize(sideG, sideG),
+                    dstOffset = IntOffset((gc.x - sideG / 2f).toInt(), (gc.y - sideG / 2f).toInt()),
+                    alpha = ghostAlpha,
+                )
+            }
         }
 
         // 最后一手

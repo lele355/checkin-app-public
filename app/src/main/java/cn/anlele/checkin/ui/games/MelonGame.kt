@@ -28,7 +28,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -37,6 +40,8 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import cn.anlele.checkin.data.LeaderboardDto
 import cn.anlele.checkin.data.Repo
@@ -48,6 +53,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -70,6 +76,7 @@ fun MelonGame(
     var leaderboard by remember { mutableStateOf<LeaderboardDto?>(null) }
     var engine by remember { mutableStateOf(MelonEngine()) }
     var frameTick by remember { mutableIntStateOf(0) }
+    val flashes = remember { mutableListOf<Flash>() }
 
     LaunchedEffect(over, engine) {
         if (over) return@LaunchedEffect
@@ -82,6 +89,7 @@ fun MelonGame(
                 score = engine.score
                 if (engine.over && !over) {
                     over = true
+                    GameSfx.play("end")   // M13 终局音
                     val finalScore = min(engine.score, maxScore)
                     scope.launch {
                         runCatching { Repo.submitScore("melon", finalScore) }
@@ -99,6 +107,7 @@ fun MelonGame(
         over = false
         leaderboard = null
         frameTick = 0
+        flashes.clear()
     }
 
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -110,6 +119,7 @@ fun MelonGame(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("$score 分", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = p.accentStrong)
+                if (engine.combo >= 2 && !engine.over) Text("连击 ×${engine.comboMult}", fontSize = 12.sp, color = Color(0xFFFF6F00))
                 Text("下一个 ${MelonEngine.NAMES[engine.nextLevel - 1]}", fontSize = 12.sp, color = p.textSub)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -120,6 +130,11 @@ fun MelonGame(
         Spacer(Modifier.height(10.dp))
 
         Box(Modifier.fillMaxWidth().aspectRatio(10f / 16f)) {
+    // 果面图标（icons-ready 同源，D-5 统一图标制式：级色圆子 + 白剪影）
+    val fruitIcons = rememberPieceIcons("melon", listOf(
+        "grape", "cherry", "orange", "lemon", "kiwi", "tomato", "peach", "pineapple", "coconut",
+        "half_watermelon", "watermelon",
+    ))
             Canvas(
                 Modifier
                     .fillMaxSize()
@@ -152,17 +167,33 @@ fun MelonGame(
                         x += 13f * s
                     }
 
-                    // 已落水果
-                    for (b in engine.bodies) drawFruit(b.x * s, b.y * s, b.level, b.r * s, b.angle)
+                    // 已落水果（合成新果 0.2s 弹跳缩放 + 闪光环，Batch D 特效）
+                    val fxList = engine.drainEvents()
+                    for (fx in fxList) {
+                        flashes.add(Flash(fx.second * s, fx.third * s, if (fx.first == "explode") Color(0xFFFFD54F) else Color.White))
+                        GameSfx.play(if (fx.first == "explode") "explode" else "merge")   // M13 音效（Sound 开关内部门控）
+                    }
+                    for (b in engine.bodies) {
+                        val age = engine.time - b.born
+                        val sc = if (age in 0f..0.2f) 0.6f + 0.4f * (age / 0.2f) else 1f
+                        drawFruit(fruitIcons, b.x * s, b.y * s, b.level, b.r * s * sc, b.angle)
+                    }
+                    val fit2 = flashes.iterator()
+                    while (fit2.hasNext()) {
+                        val fl = fit2.next()
+                        fl.r += 3.2f * s; fl.life -= 1
+                        if (fl.life <= 0) { fit2.remove(); continue }
+                        drawCircle(fl.color.copy(alpha = (fl.life / 14f).coerceAtMost(1f) * 0.8f), fl.r, Offset(fl.x, fl.y), style = Stroke(3f * s))
+                    }
 
                     // 落点预览 + 虚线导引（M3/M5）
                     if (!over) {
                         val cr = MelonEngine.RADII[engine.curLevel - 1] * s
                         drawLine(Color(0x2E000000), Offset(engine.aimX * s, MelonEngine.DROP_Y * s + cr), Offset(engine.aimX * s, size.height - 8f * s), 2f * s)
-                        drawFruit(engine.aimX * s, MelonEngine.DROP_Y * s, engine.curLevel, cr, 0f, alpha = 0.85f)
+                        drawFruit(fruitIcons, engine.aimX * s, MelonEngine.DROP_Y * s, engine.curLevel, cr, 0f, alpha = 0.85f)
                         // 下一个预览
                         val nr = MelonEngine.RADII[engine.nextLevel - 1] * s
-                        drawFruit(size.width - 26f * s - nr, 22f * s, engine.nextLevel, nr, 0f, alpha = 0.9f)
+                        drawFruit(fruitIcons, size.width - 26f * s - nr, 22f * s, engine.nextLevel, nr, 0f, alpha = 0.9f)
                     }
                 }
             }
@@ -189,62 +220,28 @@ fun MelonGame(
     }
 }
 
-/** 果面（M6：按级画特征，与网页 melon.js 同风格） */
-private fun DrawScope.drawFruit(x: Float, y: Float, level: Int, r: Float, angle: Float, alpha: Float = 1f) {
+/** 果面（图标统一制式：级色圆子 + 白色果剪影，icons-ready 同源，双端同规） */
+private fun DrawScope.drawFruit(icons: Map<String, ImageBitmap>, x: Float, y: Float, level: Int, r: Float, angle: Float, alpha: Float = 1f) {
     rotate(angle * 57.29578f, Offset(x, y)) {
         val base = MELON_COLORS[level - 1]
         drawCircle(base.copy(alpha = alpha), r, Offset(x, y))
         drawCircle(Color(0x40000000).copy(alpha = alpha), r, Offset(x, y), style = Stroke(1.5f * (r / 30f)))
-        val dot = when (level) {
-            1 -> Color(0x59FFFFFF)          // 葡萄颗粒
-            2 -> Color(0x80780000)          // 樱桃核
-            3 -> Color(0x80FFF0C8)          // 橘子皮孔
-            5 -> Color(0xB31E3C14)          // 猕猴桃籽
-            8 -> Color(0x8CB41414)          // 菠萝网纹（点代）
-            9 -> Color(0xCC3C2819)          // 椰子眼
-            10 -> Color(0xD9141414)         // 半瓜黑籽
-            else -> null
-        }
-        if (dot != null) {
-            val n = if (level == 2 || level == 9) 3 else 8
-            for (i in 0 until n) {
-                val a = i * 6.2832f / n + level
-                drawCircle(dot.copy(alpha = alpha), r * 0.12f, Offset(x + cos(a) * r * 0.5f, y + sin(a) * r * 0.5f))
-            }
-        }
-        if (level == 10) {   // 半个西瓜：红瓤
-            val path = Path().apply {
-                addArc(Rect(x - r * 0.95f, y - r * 0.7f, x + r * 0.95f, y + r * 1.2f), 180f, 180f)
-            }
-            drawPath(path, Color(0xFFEF5350).copy(alpha = alpha))
-        }
-        if (level == 11) {   // 西瓜条纹
-            for (k in -2..2) {
-                drawLine(
-                    Color(0xFF81C784).copy(alpha = alpha),
-                    Offset(x + k * r * 0.38f, y - r * 0.95f),
-                    Offset(x + k * r * 0.38f, y + r * 0.95f),
-                    r * 0.14f,
-                )
-            }
-        }
-        if (level == 8) {    // 菠萝顶冠
-            val path = Path().apply {
-                moveTo(x - r * 0.45f, y - r * 0.85f)
-                lineTo(x, y - r * 1.35f)
-                lineTo(x + r * 0.45f, y - r * 0.85f)
-                close()
-            }
-            drawPath(path, Color(0xFF2E7D32).copy(alpha = alpha))
+        val keys = listOf("grape", "cherry", "orange", "lemon", "kiwi", "tomato", "peach", "pineapple", "coconut", "half_watermelon", "watermelon")
+        val bmp = icons[keys.getOrElse(level - 1) { "grape" }]
+        if (bmp != null) {
+            val side = (r * 1.5f).toInt().coerceAtLeast(2)   // 剪影盒 = 直径×0.75（与网页同参数）
+            drawImage(
+                bmp,
+                dstSize = IntSize(side, side),
+                dstOffset = IntOffset((x - side / 2f).toInt(), (y - side / 2f).toInt()),
+                alpha = alpha,
+                colorFilter = ColorFilter.tint(Color.White, BlendMode.SrcIn),
+            )
         }
     }
 }
 
-/**
- * 合成大西瓜物理引擎 —— 与网页 melon-core.js 同参数同规则（改一处必须同步另一处）。
- * 圆刚体 + 冲量法碰撞（8 次松弛迭代）；同级接触即合成；等差计分；警戒线缓冲判负。
- */
-private class MelonEngine(val width: Float = W, val height: Float = H, seed: Long = System.nanoTime()) {
+internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Long = System.nanoTime()) {
     companion object {
         const val W = 360f
         const val H = 480f
@@ -266,7 +263,7 @@ private class MelonEngine(val width: Float = W, val height: Float = H, seed: Lon
         var x: Float, var y: Float, var vx: Float, var vy: Float,
         val r: Float, val level: Int,
         var angle: Float = 0f, var av: Float = 0f,
-        var lock: Int = 0, var age: Float = 0f, var dead: Boolean = false,
+        var lock: Int = 0, var age: Float = 0f, var born: Float = 0f, var dead: Boolean = false,
     )
 
     private val rng = java.util.Random(seed)
@@ -277,7 +274,18 @@ private class MelonEngine(val width: Float = W, val height: Float = H, seed: Lon
     var curLevel = rollLevel(); private set
     var nextLevel = rollLevel(); private set
     var aimX = width / 2; private set
+    var time = 0f; private set                 // 物理时钟（特效/连击窗用）
+    var combo = 0; private set                 // 连击（Batch D）：3 秒窗连续合成递增
+    var comboMult: Float = 1f; private set
+    private var lastMergeAt = -999f
     private var cool = 0f
+    private val events = mutableListOf<Triple<String, Float, Float>>()   // (type, x, y)
+
+    fun drainEvents(): List<Triple<String, Float, Float>> {
+        val e = events.toList()
+        events.clear()
+        return e
+    }
 
     private fun rollLevel(): Int {
         val total = WEIGHTS.sum()
@@ -287,16 +295,17 @@ private class MelonEngine(val width: Float = W, val height: Float = H, seed: Lon
     }
 
     private fun addBody(level: Int, x: Float, y: Float, vx: Float = 0f, vy: Float = 0f, lock: Int = 0): Body {
-        val b = Body(x, y, vx, vy, RADII[level - 1], level, lock = lock)
+        val b = Body(x, y, vx, vy, RADII[level - 1], level, lock = lock, born = time)
         bodies.add(b)
         return b
     }
 
-    /** 两个同级相撞 → 合成高一级（源级 k 得 k 分；合出西瓜 +100）；两个西瓜相撞 → 爆炸 +100（M9） */
+    /** 两个同级相撞 → 合成高一级（源级 k 得 k 分 ×连击；合出西瓜 +100 平加）；两西瓜相撞 → 爆炸 +100（M9） */
     private fun tryMerge(a: Body, b: Body) {
         if (a.dead || b.dead || a.level != b.level || a.lock > 0 || b.lock > 0) return
         if (a.level >= 11) {
             a.dead = true; b.dead = true; score += 100
+            events.add(Triple("explode", (a.x + b.x) / 2f, (a.y + b.y) / 2f))
             return
         }
         val lv = a.level
@@ -305,10 +314,15 @@ private class MelonEngine(val width: Float = W, val height: Float = H, seed: Lon
         val mvx = (a.vx + b.vx) / 2f * 0.9f
         val mvy = (a.vy + b.vy) / 2f * 0.9f
         a.dead = true; b.dead = true
-        score += lv
+        // 连击加成（Batch D，与 melon-core.js 同规）：3 秒窗 ×1.2 / ×1.5 / ×2 封顶
+        combo = if (time - lastMergeAt <= 3f) combo + 1 else 1
+        lastMergeAt = time
+        comboMult = if (combo >= 4) 2f else if (combo == 3) 1.5f else if (combo == 2) 1.2f else 1f
+        score += (lv * comboMult).roundToInt()   // BUG-2：与网页 Math.round 同口径（四舍五入），toInt 截断曾致 9/30 组合双端分歧
         val nl = lv + 1
         if (nl == 11) score += 100
         addBody(nl, mx, my, mvx, mvy, MERGE_LOCK)
+        events.add(Triple("merge", mx, my))
     }
 
     private fun pairResolve(a: Body, b: Body) {
@@ -365,6 +379,7 @@ private class MelonEngine(val width: Float = W, val height: Float = H, seed: Lon
         val sub = 1f / 60f
         val steps = maxOf(1, (dt / sub).toInt())
         repeat(steps) {
+            time += sub
             for (b in bodies) {
                 if (b.dead) continue
                 b.vy += GRAVITY * sub
@@ -422,3 +437,6 @@ private val MELON_COLORS = listOf(
     Color(0xFF7CB342), Color(0xFFEF5350), Color(0xFFF48FB1), Color(0xFFF9A825),
     Color(0xFF8D6E63), Color(0xFF43A047), Color(0xFF2E7D32),
 )
+
+/** 合成闪光环（Batch D 特效） */
+private class Flash(var x: Float, var y: Float, val color: Color, var r: Float = 12f, var life: Float = 14f)

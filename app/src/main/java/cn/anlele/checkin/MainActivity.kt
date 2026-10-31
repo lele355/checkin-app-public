@@ -73,6 +73,7 @@ fun AppRoot(vm: AppVm) {
 
 /** 状态栏/导航栏图标颜色跟随主题深浅（macos 暗色主题时自动变白） */
 @Composable
+@Suppress("DEPRECATION")   // statusBarColor/navigationBarColor 仍是控制颜色的唯一途径（Android 15 起弃用）
 private fun SystemBars(dark: Boolean) {
     val view = LocalView.current
     if (view.isInEditMode) return

@@ -36,8 +36,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -60,6 +62,8 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import cn.anlele.checkin.AppVm
 import cn.anlele.checkin.data.ApiException
@@ -84,9 +88,13 @@ import cn.anlele.checkin.ui.components.SiteSwitch
 import cn.anlele.checkin.ui.games.ArmyChessBoard
 import cn.anlele.checkin.ui.games.ArmyChessDeployPiece
 import cn.anlele.checkin.ui.games.ArmyChessLastMove
+import cn.anlele.checkin.ui.games.rememberPieceIcons
+import cn.anlele.checkin.ui.games.reversiLastFlips
 import cn.anlele.checkin.ui.games.ArmyChessPiece
 import cn.anlele.checkin.ui.games.armyChessGenDeploy
 import cn.anlele.checkin.ui.games.armyChessTrySwap
+import cn.anlele.checkin.ui.games.AnimBox
+import cn.anlele.checkin.ui.games.GameSfx
 import cn.anlele.checkin.ui.games.FishGame
 import cn.anlele.checkin.ui.games.JungleBoard
 import cn.anlele.checkin.ui.games.JungleLastMove
@@ -119,7 +127,7 @@ private val BOARD_SIZES = listOf(13, 15, 19)
 /** 单步限时可选值（秒），0 = 不限 */
 private val MOVE_TIMEOUTS = listOf(0, 15, 30, 60, 120)
 
-/** 每方总用时可选值（秒），0 = 不限 */
+/** 每方总局时可选值（秒），0 = 不限 */
 private val TOTAL_TIMEOUTS = listOf(0, 300, 600, 900, 1800)
 
 /**
@@ -456,6 +464,84 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
         }
     }
 
+    /** 保存两层（显示层 + 本游戏规则层）——单游戏设置面板一次提交 */
+    fun saveBoth(dd: GameDisplayDto, rr: GameRuleDefaultsDto) {
+        val key = gameKey ?: "gomoku"
+        scope.launch {
+            try {
+                display = Repo.saveGameDisplay(dd)
+                rules = Repo.saveGameRules(key, rr)
+                rulesOpen = false
+                vm.toast("设置已保存")
+            } catch (e: Exception) {
+                vm.toast(e.message ?: "保存失败")
+            }
+        }
+    }
+
+    /**
+     * 一键重建（走查表 §3）：先落库新设置，再建新关旧跳新房。
+     * AI 局免确认直接重建；真人局先征求对方同意（拒绝/超时 → 回滚提示，本局保留）。
+     */
+    fun saveAndRebuild(dd: GameDisplayDto, rr: GameRuleDefaultsDto) {
+        val cur = room ?: return
+        val key = gameKey ?: "gomoku"
+        scope.launch {
+            try {
+                // 1) 先落库（新房按新默认建）
+                display = Repo.saveGameDisplay(dd)
+                rules = Repo.saveGameRules(key, rr)
+                rulesOpen = false
+                // 2) 征询（AI 局直接 ready）
+                val ask = Repo.gameRebuild(key, cur.id, Repo.RebuildReq(action = "ask"))
+                var vote: Int? = if (ask.ready == true) 1 else null
+                if (vote == null) vm.toast("等待对方确认换房")
+                var waited = 0
+                while (vote == null && waited < 90) {
+                    kotlinx.coroutines.delay(2000)
+                    val s = Repo.game(cur.id, key)
+                    val rb = s.rebuild
+                    if ((rb?.doneId ?: 0) > 0) { room = Repo.game(rb!!.doneId, key); return@launch }
+                    if (rb?.vote != null) vote = rb.vote
+                    waited++
+                }
+                if (vote != 1) {
+                    runCatching { Repo.gameRebuild(key, cur.id, Repo.RebuildReq(action = "cancel")) }
+                    vm.toast("已保留当前对局")
+                    return@launch
+                }
+                // 3) 建新（规则=刚落库的默认）关旧
+                val d = Repo.createGame(
+                    1,
+                    opponent = if (cur.isAi) "ai" else "friend",
+                    aiLevel = if (cur.isAi) cur.aiLevel.coerceAtLeast(1) else null,
+                    gameKey = key,
+                    mode = if (key == "armychess") rr.mode else null,
+                )
+                Repo.gameRebuild(key, cur.id, Repo.RebuildReq(action = "execute", newRoomId = d.id))
+                room = Repo.game(d.id, key)
+            } catch (e: Exception) {
+                vm.toast(e.message ?: "重建失败")
+            }
+        }
+    }
+
+    /** 对手端：对重建请求表态 */
+    fun rebuildVote(accept: Boolean) {
+        val cur = room ?: return
+        val key = gameKey ?: "gomoku"
+        scope.launch {
+            runCatching { Repo.gameRebuild(key, cur.id, Repo.RebuildReq(action = "vote", accept = accept)) }
+                .onFailure { vm.toast(it.message ?: "操作失败") }
+        }
+    }
+
+    /** 换房完成 → 跳新房 */
+    fun rebuildGoto(id: Int) {
+        val key = gameKey ?: "gomoku"
+        scope.launch { runCatching { room = Repo.game(id, key) } }
+    }
+
     // 修复 1：「恢复默认」= 立即恢复出厂值并落库（只动自己那半），不是清空草稿
     fun resetDisplay() {
         scope.launch {
@@ -538,8 +624,13 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
             onLudoMove = ::ludoMovePiece,
             onFromTo = ::fromToMove,
             onDeploy = ::deploy,
+            onRebuildVote = ::rebuildVote,
+            onRebuildGoto = ::rebuildGoto,
         )
     }
+
+    // 音效开关同步（DisplaySettings.Sound → GameSfx，只影响本机）
+    LaunchedEffect(display.sound) { GameSfx.enabled = display.sound }
 
     if (displayOpen) {
         GameDisplaySheet(
@@ -550,11 +641,15 @@ fun GamesScreen(vm: AppVm, setModuleBack: ((() -> Boolean)?) -> Unit = {}) {
         )
     }
     if (rulesOpen) {
-        GomokuRulesSheet(
-            initial = rules,
+        GameRulesSheet(
+            gameKey = gameKey ?: "gomoku",
+            initialDisplay = display,
+            initialRules = rules,
+            inGame = cur?.status == "playing",
             onDismiss = { rulesOpen = false },
-            onSave = ::saveRules,
+            onSave = ::saveBoth,
             onResetDefault = ::resetRules,
+            onRebuild = ::saveAndRebuild,
         )
     }
 
@@ -967,6 +1062,11 @@ private fun GameDisplaySheet(
                 checked = d.vibrate,
                 onChange = { d = d.copy(vibrate = it) },
             )
+            SwitchRow(
+                title = "音效",
+                checked = d.sound,
+                onChange = { d = d.copy(sound = it) },
+            )
 
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -978,51 +1078,109 @@ private fun GameDisplaySheet(
     }
 }
 
-/// 五子棋杂项设置：建房那一刻快照进房间，双方共享
+/// 单游戏设置（走查表 §2.1）：按 gameKey 只显示适用项——固定盘面绝不出现「盘面大小」。
+/// 显示层（落子确认/坐标/最后落子/音效）即时生效；重建层（盘面/禁手/军旗模式/限时）
+/// 建房快照——对局中改 → 提醒 + 一键重建（走查表 §3）。红线 19：各设置 DTO 独立。
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun GomokuRulesSheet(
-    initial: GameRuleDefaultsDto,
+private fun GameRulesSheet(
+    gameKey: String,
+    initialDisplay: GameDisplayDto,
+    initialRules: GameRuleDefaultsDto,
+    inGame: Boolean,
     onDismiss: () -> Unit,
-    onSave: (GameRuleDefaultsDto) -> Unit,
+    onSave: (GameDisplayDto, GameRuleDefaultsDto) -> Unit,
     onResetDefault: () -> Unit,
+    onRebuild: (GameDisplayDto, GameRuleDefaultsDto) -> Unit,
 ) {
     val p = palette
-    var d by remember(initial) { mutableStateOf(initial) }
+    var d by remember(initialDisplay) { mutableStateOf(initialDisplay) }
+    var r by remember(initialRules) { mutableStateOf(initialRules) }
+
+    // §2.1 适用项（不适用项一个字都不出现，0.2）
+    val online = gameKey in setOf("gomoku", "jungle", "xiangqi", "armychess", "reversi", "ludo")
+    val showTapConfirm = online
+    val showCoord = gameKey in setOf("gomoku", "jungle", "xiangqi", "reversi")
+    val showLastMark = online
+    val showSound = gameKey == "fish" || gameKey == "melon"   // 有音效的游戏才显示（melon M13 落地）
+    val showSize = gameKey == "gomoku"
+    val showForbidden = gameKey == "gomoku"
+    val showMode = gameKey == "armychess"
+    val showTimers = online
+
+    val rebuildChanged = (showSize && r.size != initialRules.size) ||
+        (showForbidden && r.forbidden != initialRules.forbidden) ||
+        (showMode && r.mode != initialRules.mode) ||
+        (showTimers && (r.moveTimeoutSec != initialRules.moveTimeoutSec ||
+            r.totalTimeoutSec != initialRules.totalTimeoutSec))
 
     PickerSheetShell(onDismiss = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 22.dp)) {
-            Text("五子棋 · 默认规则", fontSize = 16.sp, color = p.text, fontWeight = FontWeight.SemiBold)
+            Text("游戏设置", fontSize = 16.sp, color = p.text, fontWeight = FontWeight.SemiBold)
 
-            OptionChips(
-                title = "盘面",
-                options = BOARD_SIZES.map { "$it 路" },
-                selectedIndex = BOARD_SIZES.indexOf(d.size).coerceAtLeast(0),
-                onPick = { d = d.copy(size = BOARD_SIZES[it]) },
-            )
-            OptionChips(
-                title = "规则",
-                options = listOf("自由规则", "标准规则"),
-                selectedIndex = if (d.forbidden) 1 else 0,
-                onPick = { d = d.copy(forbidden = it == 1) },
-            )
-            OptionChips(
-                title = "单步限时",
-                options = MOVE_TIMEOUTS.map { moveTimeoutLabel(it) },
-                selectedIndex = MOVE_TIMEOUTS.indexOf(d.moveTimeoutSec).coerceAtLeast(0),
-                onPick = { d = d.copy(moveTimeoutSec = MOVE_TIMEOUTS[it]) },
-            )
-            OptionChips(
-                title = "每方总用时",
-                options = TOTAL_TIMEOUTS.map { totalTimeoutLabel(it) },
-                selectedIndex = TOTAL_TIMEOUTS.indexOf(d.totalTimeoutSec).coerceAtLeast(0),
-                onPick = { d = d.copy(totalTimeoutSec = TOTAL_TIMEOUTS[it]) },
-            )
+            if (showTapConfirm) SwitchRow(title = "落子确认", checked = d.tapConfirm, onChange = { d = d.copy(tapConfirm = it) })
+            if (showCoord) SwitchRow(title = "坐标显示", checked = d.showCoord, onChange = { d = d.copy(showCoord = it) })
+            if (showLastMark) SwitchRow(title = "最后落子标记", checked = d.lastMark, onChange = { d = d.copy(lastMark = it) })
+            if (showSound) SwitchRow(title = "音效", checked = d.sound, onChange = { d = d.copy(sound = it) })
+
+            if (showSize) {
+                OptionChips(
+                    title = "盘面",
+                    options = BOARD_SIZES.map { "$it 路" },
+                    selectedIndex = BOARD_SIZES.indexOf(r.size).coerceAtLeast(0),
+                    onPick = { r = r.copy(size = BOARD_SIZES[it]) },
+                )
+            }
+            if (showForbidden) {
+                OptionChips(
+                    title = "规则",
+                    options = listOf("自由规则", "标准规则"),
+                    selectedIndex = if (r.forbidden) 1 else 0,
+                    onPick = { r = r.copy(forbidden = it == 1) },
+                )
+            }
+            if (showMode) {
+                OptionChips(
+                    title = "军旗模式",
+                    options = listOf("明棋", "暗棋", "翻棋"),
+                    selectedIndex = listOf("open", "dark", "fanqi").indexOf(r.mode).coerceAtLeast(0),
+                    onPick = { r = r.copy(mode = listOf("open", "dark", "fanqi")[it]) },
+                )
+            }
+            if (showTimers) {
+                OptionChips(
+                    title = "单步限时",
+                    options = MOVE_TIMEOUTS.map { moveTimeoutLabel(it) },
+                    selectedIndex = MOVE_TIMEOUTS.indexOf(r.moveTimeoutSec).coerceAtLeast(0),
+                    onPick = { r = r.copy(moveTimeoutSec = MOVE_TIMEOUTS[it]) },
+                )
+                OptionChips(
+                    title = "每方总局时",
+                    options = TOTAL_TIMEOUTS.map { totalTimeoutLabel(it) },
+                    selectedIndex = TOTAL_TIMEOUTS.indexOf(r.totalTimeoutSec).coerceAtLeast(0),
+                    onPick = { r = r.copy(totalTimeoutSec = TOTAL_TIMEOUTS[it]) },
+                )
+            }
+
+            if (inGame && rebuildChanged) {
+                // 重建提醒（走查表 §3）：0.2 文案极简
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    Modifier.fillMaxWidth().background(p.card.copy(alpha = 0.6f), androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("⚠ 该设置需重建房间生效", Modifier.weight(1f), fontSize = 12.sp, color = p.text)
+                    PrimaryButton("一键重建") { onRebuild(d, r) }
+                    Spacer(Modifier.width(8.dp))
+                    SecondaryButton("取消") { onDismiss() }
+                }
+            }
 
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryButton("保存", Modifier.weight(1f)) { onSave(d) }
-                // 恢复默认 = 立即恢复出厂值并落库（只动规则默认这半）
+                PrimaryButton("保存", Modifier.weight(1f)) { onSave(d, r) }
+                // 恢复默认 = 立即恢复出厂值并落库（只动本游戏规则这半）
                 SecondaryButton("恢复默认", Modifier.weight(1f)) { onResetDefault() }
             }
         }
@@ -1092,15 +1250,68 @@ private fun RoomContent(
     onLudoMove: (Int) -> Unit = {},
     onFromTo: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
     onDeploy: (Repo.GameDeployReq) -> Unit = {},
+    onRebuildVote: (Boolean) -> Unit = {},
+    onRebuildGoto: (Int) -> Unit = {},
 ) {
     val n = if (dto.size > 0) dto.size else 15
     val showClock = dto.moveTimeoutSec > 0 || dto.totalTimeoutSec > 0
+
+    // 重建换房握手（走查表 §3）：对方请求 → 同意/拒绝条；换房完成 → 跳新房
+    val rebuild = dto.rebuild
+    LaunchedEffect(rebuild?.doneId) {
+        val done = rebuild?.doneId ?: 0
+        if (done > 0) onRebuildGoto(done)
+    }
 
     // 两段式走子（象棋/斗兽棋/军旗）：选起点 → 高亮 → 选终点
     var selFrom by remember(dto.id) { mutableStateOf<Pair<Int, Int>?>(null) }
     LaunchedEffect(dto.revision, dto.myTurn) { if (!dto.myTurn) selFrom = null }
     fun isOwnPiece(x: Int, y: Int): Boolean =
         dto.state?.pieces?.any { it.x == x && it.y == y && it.side == dto.mySide } == true
+
+    // 可走提示按需表（QA §3-P1）：选中棋子才拉单子提示，轮询不再全量下发
+    var hintMap by remember(dto.id) { mutableStateOf<Map<String, List<List<Int>>>>(emptyMap()) }
+    LaunchedEffect(selFrom) {
+        val s = selFrom
+        hintMap = if (s == null) emptyMap()
+        else runCatching { Repo.gameHints(dto.gameKey, dto.id, s.first, s.second) }.getOrDefault(emptyMap())
+    }
+
+    // 可走提示查询（按需化）：以单子表为准；未就绪退回直接走（服务端仍兜底校验）
+    fun canTarget(fx: Int, fy: Int, tx: Int, ty: Int): Boolean {
+        val lst = hintMap["$fx,$fy"] ?: return true
+        return lst.any { it.size >= 2 && it[0] == tx && it[1] == ty }
+    }
+
+    // 走子滑动动画 + 吃子鬼影（Batch D）：revision 变化按 lastMove 启动，帧循环推进
+    val animBox = remember(dto.id) { AnimBox() }
+    var animTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(dto.revision) {
+        animBox.onNewState(dto.state?.lastMove, dto.state?.pieces ?: emptyList())
+        if (!animBox.done) {
+            val t0 = withFrameNanos { it }
+            while (!animBox.done) {
+                withFrameNanos { ts -> animBox.advance((ts - t0) / 1_000_000f); animTick++ }
+            }
+        } else {
+            animTick++
+        }
+    }
+
+    // 对手端重建请求提示（走查表 §3，0.2 文案极简）
+    if (rebuild != null && rebuild.doneId == 0 && rebuild.askSide in 1..2 &&
+        rebuild.askSide != dto.mySide && rebuild.vote == null
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("对手请求重建房间", Modifier.weight(1f), fontSize = 12.sp, color = palette.text)
+            PrimaryButton("同意换房") { onRebuildVote(true) }
+            Spacer(Modifier.width(8.dp))
+            SecondaryButton("拒绝") { onRebuildVote(false) }
+        }
+    }
 
     // 军旗明棋布阵：本地排布（客户端生成，确认后提交 deploy）——与网页 games.js 同流
     val deployActive = dto.gameKey == "armychess" && dto.status == "setup" && dto.mySide > 0 &&
@@ -1137,22 +1348,22 @@ private fun RoomContent(
                 piece != null && piece.hidden -> { selFrom = null; onMove(x, y) }
                 !st.settled -> {}
                 piece != null && piece.side == myColor -> { selFrom = x to y }
-                selFrom != null -> {
+                selFrom != null && canTarget(selFrom!!.first, selFrom!!.second, x, y) -> {
                     val cur = selFrom!!
                     selFrom = null
                     onFromTo(cur.first, cur.second, x, y)
                 }
-                else -> { selFrom = null }
+                else -> { selFrom = null }   // 点别处 = 取消选中（Batch D）
             }
         } else if (twoStep) {
             val cur = selFrom
-            if (cur != null && !(cur.first == x && cur.second == y) && !isOwnPiece(x, y)) {
-                // 点非己方格 = 选终点 → 提交 {fx,fy,tx,ty}
-                onFromTo(cur.first, cur.second, x, y)
-                selFrom = null
-            } else {
-                // 点己方子 = 选/改选起点（含首选与改选）
-                selFrom = if (isOwnPiece(x, y)) x to y else null
+            when {
+                isOwnPiece(x, y) -> { selFrom = x to y }
+                cur != null && !(cur.first == x && cur.second == y) && canTarget(cur.first, cur.second, x, y) -> {
+                    onFromTo(cur.first, cur.second, x, y)
+                    selFrom = null
+                }
+                else -> { selFrom = null }   // 点别处 = 取消选中（Batch D）
             }
         } else {
             onMove(x, y)
@@ -1209,6 +1420,10 @@ private fun RoomContent(
                             selected = deploySel ?: selFrom,
                             onLudoPiece = onLudoMove,
                             deployPieces = if (deployActive) deployPieces else null,
+                            hints = hintMap,
+                            anim = animBox.anim,
+                            ghostPiece = animBox.ghostPiece,
+                            ghostAlpha = animBox.ghostAlpha,
                         )
                     }
                 }
@@ -1251,6 +1466,10 @@ private fun RoomContent(
                             selected = deploySel ?: selFrom,
                             onLudoPiece = onLudoMove,
                             deployPieces = if (deployActive) deployPieces else null,
+                            hints = hintMap,
+                            anim = animBox.anim,
+                            ghostPiece = animBox.ghostPiece,
+                            ghostAlpha = animBox.ghostAlpha,
                         )
                         RoomLudoControls(dto, playing, onRoll, onLudoMove)
                         RoomDeployControls(
@@ -1359,29 +1578,44 @@ private fun RoomBoard(
     selected: Pair<Int, Int>? = null,
     onLudoPiece: (Int) -> Unit = {},
     deployPieces: List<ArmyChessDeployPiece>? = null,
+    hints: Map<String, List<List<Int>>>? = null,
+    anim: cn.anlele.checkin.ui.games.BoardAnim? = null,
+    ghostPiece: cn.anlele.checkin.data.GamePieceDto? = null,
+    ghostAlpha: Float = 0f,
 ) {
     val p = palette
     val st = dto.state
     when (dto.gameKey) {
         "gomoku" -> Board(dto = dto, n = n, prefs = prefs, onTap = onTap)
-        "reversi" -> ReversiBoard(
-            board = buildReversiBoard((st?.events ?: emptyList()).map { e ->
+        "reversi" -> {
+            val evs = (st?.events ?: emptyList()).map { e ->
                 buildMap<String, Any?> { put("t", e.t); put("s", e.s); put("x", e.x); put("y", e.y) }
-            }),
-            lastMove = st?.lastMove?.let { it.tx to it.ty },
-            showCoord = prefs.showCoord, lastMark = prefs.lastMark,
-            mySide = dto.mySide, myTurn = dto.myTurn, onTap = onTap,
-        )
+            }
+            ReversiBoard(
+                board = buildReversiBoard(evs),
+                lastMove = st?.lastMove?.let { it.tx to it.ty },
+                showCoord = prefs.showCoord, lastMark = prefs.lastMark,
+                mySide = dto.mySide, myTurn = dto.myTurn, onTap = onTap,
+                tapConfirm = prefs.tapConfirm, revision = dto.revision,
+                lastFlips = reversiLastFlips(evs),
+            )
+        }
         "jungle" -> JungleBoard(
             pieces = st?.pieces?.map { JunglePiece(it.x, it.y, it.side, it.rank?.jsonPrimitive?.intOrNull ?: 0) } ?: emptyList(),
-            lastMove = st?.lastMove?.let { JungleLastMove(it.fx, it.fy, it.tx, it.ty) },
+            lastMove = st?.lastMove?.let { JungleLastMove(it.fx ?: it.tx, it.fy ?: it.ty, it.tx, it.ty) },   // P4-1：与 FanqiRules 哨兵语义对齐
             showCoord = prefs.showCoord, lastMark = prefs.lastMark, onTap = onTap,
+            selected = selected, hints = hints, anim = anim,
+            ghost = ghostPiece?.let { JunglePiece(it.x, it.y, it.side, it.rank?.jsonPrimitive?.intOrNull ?: 0) },
+            ghostAlpha = ghostAlpha,
         )
         "xiangqi" -> XiangqiBoard(
             pieces = st?.pieces?.map { XiangqiPiece(it.x, it.y, it.side, it.type) } ?: emptyList(),
-            lastMove = st?.lastMove?.let { XiangqiLastMove(it.fx, it.fy, it.tx, it.ty) },
+            lastMove = st?.lastMove?.let { XiangqiLastMove(it.fx ?: it.tx, it.fy ?: it.ty, it.tx, it.ty) },   // P4-1：与 FanqiRules 哨兵语义对齐
             inCheck = st?.inCheck ?: false,
             showCoord = prefs.showCoord, lastMark = prefs.lastMark, onTap = onTap,
+            selected = selected, hints = hints, anim = anim,
+            ghost = ghostPiece?.let { XiangqiPiece(it.x, it.y, it.side, it.type) },
+            ghostAlpha = ghostAlpha,
         )
         "ludo" -> LudoBoard(
             pieces = st?.pieces?.map { LudoPiece(it.side, it.p, it.pos) } ?: emptyList(),
@@ -1400,9 +1634,11 @@ private fun RoomBoard(
             } else {
                 st?.pieces?.map { ArmyChessPiece(it.x, it.y, it.side, it.rank?.jsonPrimitive?.contentOrNull, it.hidden) } ?: emptyList()
             },
-            lastMove = st?.lastMove?.let { ArmyChessLastMove(it.fx, it.fy, it.tx, it.ty) },
+            lastMove = st?.lastMove?.let { ArmyChessLastMove(it.fx ?: it.tx, it.fy ?: it.ty, it.tx, it.ty) },   // P4-1：与 FanqiRules 哨兵语义对齐
             showCoord = prefs.showCoord, lastMark = prefs.lastMark,
-            onTap = onTap, selected = selected,
+            onTap = onTap, selected = selected, hints = hints, anim = anim,
+            ghost = ghostPiece?.let { ArmyChessPiece(it.x, it.y, it.side, it.rank?.jsonPrimitive?.contentOrNull, it.hidden) },
+            ghostAlpha = ghostAlpha,
         )
         else -> Text("此游戏的棋盘暂不支持", color = p.textSub, fontSize = 14.sp)
     }
@@ -1463,7 +1699,7 @@ private fun RoomRules(dto: GameRoomDto, n: Int) {
             AppChip("黑 ${dto.state?.black ?: 0} · 白 ${dto.state?.white ?: 0}")
         }
         if (dto.moveTimeoutSec > 0) AppChip("单步 " + moveTimeoutLabel(dto.moveTimeoutSec))
-        if (dto.totalTimeoutSec > 0) AppChip("总用时 ${dto.totalTimeoutSec / 60} 分钟")
+        if (dto.totalTimeoutSec > 0) AppChip("总局时 ${dto.totalTimeoutSec / 60} 分钟")
     }
 }
 
@@ -1559,6 +1795,19 @@ private fun starPoints(n: Int): List<Pair<Int, Int>> =
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Board(dto: GameRoomDto, n: Int, prefs: GameDisplayDto, onTap: (Int, Int) -> Unit) {
+    // 渐变圆子图标（icons-ready 同源，D-5）
+    val stoneIcons = rememberPieceIcons("stone", listOf("black", "white"))
+    // 新着回弹动画（任务二尾巴）：0.35→1 缓出
+    var placeProg by remember(dto.revision) { mutableFloatStateOf(1f) }
+    LaunchedEffect(dto.revision) {
+        placeProg = 0f
+        val t0 = androidx.compose.runtime.withFrameNanos { it }
+        while (placeProg < 1f) {
+            androidx.compose.runtime.withFrameNanos { ts ->
+                placeProg = ((ts - t0) / 1_000_000f / 220f).coerceAtMost(1f)
+            }
+        }
+    }
     // 棋盘与棋子都用固定色，不跟主题：它代表的是一块真实棋盘（浅木底），
     // 五套主题下长得一样。跟着主题变深色的话，黑子会直接糊进背景（macos 主题实测如此）。
     val boardBg = Color(0xFFE9E0CC)
@@ -1650,15 +1899,20 @@ private fun Board(dto: GameRoomDto, n: Int, prefs: GameDisplayDto, onTap: (Int, 
             drawText(colLabel, topLeft = Offset(cx(i) - colLabel.size.width / 2f, 2f))
             drawText(rowLabel, topLeft = Offset(2f, cx(i) - rowLabel.size.height / 2f))
         }
-        // 棋子
+        // 棋子：渐变圆子整枚图标（icons-ready 同源，D-5 双端同规）
         dto.moves.forEach { m ->
             if (m.x >= n || m.y >= n) return@forEach
             val c = Offset(cx(m.x), cx(m.y))
-            if (m.s == 1) {
-                drawCircle(Color(0xFF24242C), radius = step * 0.42f, center = c)
-            } else {
-                drawCircle(Color(0xFFFBF8F2), radius = step * 0.42f, center = c)
-                drawCircle(Color(0x38000000), radius = step * 0.42f, center = c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = step * 0.05f))
+            val bmp = stoneIcons[if (m.s == 1) "black" else "white"]
+            if (bmp != null) {
+                val isLast = dto.lastMove?.let { it.x == m.x && it.y == m.y } == true && placeProg < 1f
+                val pr = 1f - (1f - placeProg) * (1f - placeProg)
+                val side = (step * 0.9f * (if (isLast) 0.35f + 0.65f * pr else 1f)).toInt().coerceAtLeast(2)
+                drawImage(
+                    bmp,
+                    dstSize = IntSize(side, side),
+                    dstOffset = IntOffset((c.x - side / 2f).toInt(), (c.y - side / 2f).toInt()),
+                )
             }
         }
         // 最后一手标记：棋子中心的高对比小圆点。
@@ -1679,11 +1933,15 @@ private fun Board(dto: GameRoomDto, n: Int, prefs: GameDisplayDto, onTap: (Int, 
             val gx = key % n
             val gy = key / n
             val c = Offset(cx(gx), cx(gy))
-            if (dto.mySide == 1) {
-                drawCircle(Color(0xFF24242C).copy(alpha = 0.45f), radius = step * 0.42f, center = c)
-            } else {
-                drawCircle(Color(0xFFFBF8F2).copy(alpha = 0.55f), radius = step * 0.42f, center = c)
-                drawCircle(Color(0x4D000000), radius = step * 0.42f, center = c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = step * 0.05f))
+            val bmpG = stoneIcons[if (dto.mySide == 1) "black" else "white"]
+            if (bmpG != null) {
+                val side = (step * 0.9f).toInt().coerceAtLeast(2)
+                drawImage(
+                    bmpG,
+                    dstSize = IntSize(side, side),
+                    dstOffset = IntOffset((c.x - side / 2f).toInt(), (c.y - side / 2f).toInt()),
+                    alpha = if (dto.mySide == 1) 0.45f else 0.55f,
+                )
             }
         }
     }
@@ -1709,6 +1967,7 @@ private fun statusText(d: GameRoomDto): String {
         return "$who$how · 共 ${d.moves.size} 手"
     }
     if (d.mySide == 0) return "你在旁观这一局"
+    if (d.status == "setup") return "布阵中"   // 军棋布阵期阶段名（与网页同词，0.2 极简）
     val base = if (d.myTurn) "轮到你落子" else "等 ${d.opponentName.ifBlank { "对手" }} 落子"
     return if (d.opponentOnline) base else "$base · 对手好像离开了"
 }
@@ -1733,7 +1992,7 @@ private fun totalTimeoutLabel(sec: Int): String = if (sec == 0) "不限" else "$
 private fun timeoutSummary(moveSec: Int, totalSec: Int): String {
     val parts = buildList {
         if (moveSec > 0) add("单步 $moveSec 秒")
-        if (totalSec > 0) add("总用时 ${totalSec / 60} 分钟")
+        if (totalSec > 0) add("总局时 ${totalSec / 60} 分钟")
     }
     return if (parts.isEmpty()) "不限时" else parts.joinToString(" · ")
 }

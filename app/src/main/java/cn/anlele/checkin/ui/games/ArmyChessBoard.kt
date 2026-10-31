@@ -11,7 +11,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
+import kotlin.math.min
 
 /**
  * 军旗棋盘 —— 5 列 × 12 行 + 铁路粗线/公路细线/山界/行营双圈/大本营 + 长方军牌。
@@ -27,6 +30,10 @@ fun ArmyChessBoard(
     modifier: Modifier = Modifier,
     onTap: ((Int, Int) -> Unit)? = null,
     selected: Pair<Int, Int>? = null,
+    hints: Map<String, List<List<Int>>>? = null,
+    anim: BoardAnim? = null,
+    ghost: ArmyChessPiece? = null,
+    ghostAlpha: Float = 0f,
 ) {
     val measurer = rememberTextMeasurer()
     val rankNames = remember {
@@ -36,6 +43,21 @@ fun ArmyChessBoard(
             "rank_company" to "连长", "rank_platoon" to "排长", "rank_engineer" to "工兵",
             "rank_mine" to "地雷", "rank_flag" to "军旗", "rank_bomb" to "炸弹",
         )
+    }
+    // 军牌字子图标（icons-ready 同源，D-5）：rank key → 件名；暗子/无归属 → back
+    val rankIcons = remember {
+        mapOf(
+            "rank_commander" to "siling", "rank_army" to "junzhang", "rank_division" to "shizhang",
+            "rank_brigade" to "lvzhang", "rank_regiment" to "tuanzhang", "rank_battalion" to "yingzhang",
+            "rank_company" to "lianzhang", "rank_platoon" to "paizhang", "rank_engineer" to "gongbing",
+            "rank_mine" to "dilei", "rank_flag" to "junqi", "rank_bomb" to "zhadan",
+        )
+    }
+    val pieceIcons = rememberPieceIcons("armychess", rankIcons.values.flatMap { listOf("red_$it", "blue_$it") } + "back")
+    fun armyIconKey(side: Int, rank: String?, hidden: Boolean): String {
+        if (hidden || (side != 1 && side != 2)) return "back"
+        val k = rankIcons[rank] ?: return "back"
+        return (if (side == 1) "red_" else "blue_") + k
     }
     val railRows = remember { intArrayOf(1, 5, 6, 10) }
     val railCols = remember { intArrayOf(0, 4) }
@@ -123,24 +145,38 @@ fun ArmyChessBoard(
                 drawCircle(Color(0xFFB71C1C), radius = geom.cellW * 0.42f, center = geom.center(x, y), style = Stroke(width = 2f))
             }
 
-            // 棋子（长方军牌；暗子背面「军」；翻棋暗子无归属 → 中性灰）
+            // 棋子（长方军牌；暗子背面「军」；翻棋暗子无归属 → 中性灰；走子动画插值）
             for (p in pieces) {
-                val tagW = geom.cellW * 0.78f
-                val tagH = geom.cellH * 0.46f
-                val cx = geom.center(p.x, p.y)
-                drawRoundRect(
-                    color = when (p.side) {
-                        1 -> Color(0xFFD32F2F)
-                        2 -> Color(0xFF1565C0)
-                        else -> Color(0xFF616161)
-                    },
-                    topLeft = Offset(cx.x - tagW / 2, cx.y - tagH / 2),
-                    size = Size(tagW, tagH),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f),
-                )
-                val label = if (p.hidden) "军" else (rankNames[p.rank] ?: "?")
-                val t = measurer.measure(label, TextStyle(fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Bold))
-                drawText(t, topLeft = Offset(cx.x - t.size.width / 2f, cx.y - t.size.height / 2f))
+                val isAnim = anim != null && p.x == anim.toX && p.y == anim.toY
+                val cx = if (isAnim) {
+                    val base = geom.start(0, 0)
+                    Offset(base.x + anim.x * geom.cellW + geom.cellW / 2f, base.y + anim.y * geom.cellH + geom.cellH / 2f)
+                } else geom.center(p.x, p.y)
+                val scl = if (isAnim) anim.scale else 1f
+                val sidePx = (min(geom.cellW, geom.cellH) * 0.94f * scl).toInt().coerceAtLeast(2)
+                val bmp = pieceIcons[armyIconKey(p.side, p.rank, p.hidden)]
+                if (bmp != null) {
+                    drawImage(
+                        bmp,
+                        dstSize = IntSize(sidePx, sidePx),
+                        dstOffset = IntOffset((cx.x - sidePx / 2f).toInt(), (cx.y - sidePx / 2f).toInt()),
+                    )
+                }
+            }
+
+            // 吃子鬼影（Batch D）：被吃军牌淡出（图标同源）
+            if (ghost != null && ghostAlpha > 0f) {
+                val cx = geom.center(ghost.x, ghost.y)
+                val sideG = (min(geom.cellW, geom.cellH) * 0.94f).toInt().coerceAtLeast(2)
+                val bmpG = pieceIcons[armyIconKey(ghost.side, ghost.rank, ghost.hidden)]
+                if (bmpG != null) {
+                    drawImage(
+                        bmpG,
+                        dstSize = IntSize(sideG, sideG),
+                        dstOffset = IntOffset((cx.x - sideG / 2f).toInt(), (cx.y - sideG / 2f).toInt()),
+                        alpha = ghostAlpha,
+                    )
+                }
             }
 
             if (lastMark && lastMove != null) {
@@ -159,6 +195,27 @@ fun ArmyChessBoard(
                     size = Size(geom.cellW - 4, geom.cellH - 4),
                     style = Stroke(width = 4f),
                 )
+            }
+            // 可走提示（Batch D）：绿点=可走，红环=可吃
+            if (selected != null && hints != null) {
+                val key = "${selected.first},${selected.second}"
+                for (tp in hints[key] ?: emptyList()) {
+                    val occ = pieces.any { it.x == tp[0] && it.y == tp[1] }
+                    if (occ) {
+                        drawRect(
+                            color = Color(0xFFE53935),
+                            topLeft = Offset(geom.start(tp[0], tp[1]).x + 4, geom.start(tp[0], tp[1]).y + 4),
+                            size = Size(geom.cellW - 8, geom.cellH - 8),
+                            style = Stroke(width = 3f),
+                        )
+                    } else {
+                        drawCircle(
+                            Color(0xBF2E7D32),
+                            radius = geom.cellW * 0.14f,
+                            center = geom.center(tp[0], tp[1]),
+                        )
+                    }
+                }
             }
         },
     )

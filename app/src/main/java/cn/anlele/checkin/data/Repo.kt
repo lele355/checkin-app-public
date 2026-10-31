@@ -321,6 +321,8 @@ object Repo {
         val sizeOptions: List<Int> = emptyList(),
         val moveTimeoutOptions: List<Int> = emptyList(),
         val totalTimeoutOptions: List<Int> = emptyList(),
+        /** 军旗模式可选值：open=明棋 / dark=暗棋 / fanqi=翻棋 */
+        val modeOptions: List<String> = emptyList(),
     )
 
     // ---------------- 游戏入口：目录 + 游戏总设置 ----------------
@@ -340,6 +342,26 @@ object Repo {
 
     suspend fun saveGameRules(gameKey: String, r: GameRuleDefaultsDto): GameRuleDefaultsDto =
         Api.put("/games/$gameKey/settings", enc(r, GameRuleDefaultsDto.serializer()))
+
+    /** 可走提示按需（QA §3-P1）：选中单子才拉，{"x,y": [[tx,ty],…]} */
+    suspend fun gameHints(gameKey: String, id: Int, fx: Int, fy: Int): Map<String, List<List<Int>>> =
+        Api.get("/games/$gameKey/rooms/$id/hints?fx=$fx&fy=$fy", cache = false)
+
+    /** 重建换房（走查表 §3）：ask 发起 / vote 表态 / execute 建新关旧 / cancel 取消 */
+    @Serializable
+    data class RebuildReq(val action: String, val accept: Boolean? = null, val newRoomId: Int? = null)
+
+    @Serializable
+    data class RebuildResp(
+        val ready: Boolean? = null,
+        val pending: Boolean? = null,
+        val accepted: Boolean? = null,
+        val canceled: Boolean? = null,
+        val id: Int? = null,
+    )
+
+    suspend fun gameRebuild(gameKey: String, id: Int, req: RebuildReq): RebuildResp =
+        Api.post("/games/$gameKey/rooms/$id/rebuild", enc(req, RebuildReq.serializer()))
 
     /** 大厅：等待中的房间 + 我参与的对局。**不吃离线快照** —— 过期局面比空列表更误导 */
     suspend fun gameLobby(gameKey: String = "gomoku"): GameLobbyDto =
