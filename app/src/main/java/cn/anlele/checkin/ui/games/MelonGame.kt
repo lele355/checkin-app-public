@@ -205,7 +205,7 @@ fun MelonGame(
                     for (b in engine.bodies) {
                         val age = engine.time - b.born
                         val sc = if (age in 0f..0.2f) 0.6f + 0.4f * (age / 0.2f) else 1f
-                        drawFruit(fruitIcons, b.x * s, b.y * s, b.level, b.r * s * sc, b.angle)   // 旋转恢复（静止由引擎冻结不飘转）
+                        drawFruit(fruitIcons, b.x * s, b.y * s, b.level, b.r * s * sc, 0f)   // 正立（2.8.13 站主定：旋转彻底删除）
                     }
                     val fit2 = flashes.iterator()
                     while (fit2.hasNext()) {
