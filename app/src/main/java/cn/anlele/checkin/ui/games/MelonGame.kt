@@ -87,15 +87,15 @@ fun MelonGame(
         val listener = object : android.hardware.SensorEventListener {
             override fun onSensorChanged(e: android.hardware.SensorEvent) {
                 val gx = e.values[0]; val gy = e.values[1]; val gz = e.values[2]
-                // 倾斜：横向分量映射 -1..1，死区 0.06、限幅 0.45（幅度不要太大）
-                val tilt = (gx / 9.81f).coerceIn(-0.45f, 0.45f)
+                // 倾斜：横向分量映射 -1..1，死区 0.06、限幅 0.45。**取反**（2026-11-01 站主实测方向反了）
+                val tilt = -(gx / 9.81f).coerceIn(-0.45f, 0.45f)
                 engine.tiltX = if (kotlin.math.abs(tilt) < 0.06f) 0f else tilt
-                // 摇晃：加速度总量突变 > 3.2 m/s² 且冷却 400ms → 沿晃动方向小推
+                // 摇晃：加速度总量突变 > 3.2 m/s² 且冷却 400ms → 打乱堆体
                 val a = sqrt(gx * gx + gy * gy + gz * gz)
                 val now = System.currentTimeMillis()
                 if (kotlin.math.abs(a - 9.81f) > 3.2f && now - lastShake > 400) {
                     lastShake = now
-                    engine.shake(if (gx >= 0) 1f else -1f)
+                    engine.shake(if (engine.tiltX >= 0) 1f else -1f)   // 主方向跟当前倾斜
                 }
             }
             override fun onAccuracyChanged(s: android.hardware.Sensor?, acc: Int) {}
@@ -158,7 +158,7 @@ fun MelonGame(
         }
         Spacer(Modifier.height(10.dp))
 
-        Box(Modifier.fillMaxWidth().aspectRatio(10f / 16f)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(MelonEngine.W / MelonEngine.H)) {   // 画布=物理比例（360:480），地板下不留死区（2026-11-01 站主定）
     // 果面图标（icons-ready 同源，D-5 统一图标制式：级色圆子 + 白剪影）
     val fruitIcons = rememberPieceIcons("melon", listOf(
         "grape", "cherry", "orange", "lemon", "kiwi", "tomato", "peach", "pineapple", "coconut",
@@ -205,7 +205,7 @@ fun MelonGame(
                     for (b in engine.bodies) {
                         val age = engine.time - b.born
                         val sc = if (age in 0f..0.2f) 0.6f + 0.4f * (age / 0.2f) else 1f
-                        drawFruit(fruitIcons, b.x * s, b.y * s, b.level, b.r * s * sc, 0f)
+                        drawFruit(fruitIcons, b.x * s, b.y * s, b.level, b.r * s * sc, b.angle)   // 旋转恢复（静止由引擎冻结不飘转）
                     }
                     val fit2 = flashes.iterator()
                     while (fit2.hasNext()) {
@@ -274,7 +274,7 @@ internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Lo
         val NAMES = listOf("葡萄", "樱桃", "橘子", "柠檬", "猕猴桃", "番茄", "桃子", "菠萝", "椰子", "半个西瓜", "西瓜")
         const val GRAVITY = 1600f
         const val RESTITUTION = 0.22f
-        const val FRICTION = 0.10f
+        const val FRICTION = 0.07f   // 层间摩擦（0.10→0.07：堆体能被倾斜整体推动，2026-11-01）
         const val ITER = 8
         const val DROP_Y = 46f
         const val WARN_Y = 96f
@@ -300,10 +300,14 @@ internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Lo
     /** 体感倾斜输入（-1..1，传感器喂；限幅在传感器侧）。水平力 = 重力×0.22×tiltX（温和） */
     var tiltX = 0f
 
-    /** 摇晃脉冲：给全体水果一个横向小推（幅度小） */
+    /** 摇晃脉冲：打乱堆体（随机横推 + 轻微上抛，2026-11-01 站主定「打乱一下水果」） */
     fun shake(dirX: Float) {
-        val d = if (dirX > 0) 1f else -1f
-        for (b in bodies) if (!b.dead) b.vx += d * 5f
+        for (b in bodies) {
+            if (b.dead) continue
+            val side = if (Math.random() < 0.7) (if (dirX > 0) 1f else -1f) else (if (Math.random() < 0.5) 1f else -1f)  // 主方向+少量反向=打乱
+            b.vx += side * (9f + Math.random().toFloat() * 7f)   // 9~16 横推
+            b.vy -= (4f + Math.random().toFloat() * 6f)          // 4~10 轻微上抛（松动堆叠）
+        }
     }
     var curLevel = rollLevel(); private set
     var nextLevel = rollLevel(); private set
@@ -402,7 +406,7 @@ internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Lo
         if (b.y + b.r > height) {
             b.y = height - b.r
             if (b.vy > 0) b.vy = -b.vy * RESTITUTION
-            b.vx *= 0.985f
+            b.vx *= 0.99f               // 地面摩擦（0.985→0.99：倾斜能推动堆体，2026-11-01）
             b.av *= 0.985f
         }
     }
@@ -417,9 +421,11 @@ internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Lo
             for (b in bodies) {
                 if (b.dead) continue
                 b.vy += GRAVITY * sub
-                if (tiltX != 0f) b.vx += GRAVITY * 0.22f * tiltX * sub   // 体感倾斜：水平力=重力 22%×tilt（限幅后≤10%g，温和）
+                if (tiltX != 0f) b.vx += GRAVITY * 0.55f * tiltX * sub   // 体感倾斜：斜重力传导到堆体（2026-11-01 加大 0.22→0.55，堆体可缓移）
                 b.x += b.vx * sub; b.y += b.vy * sub
-                b.angle += b.av * sub
+                // 旋转恢复（站主定：跟角度，但**静止后冻结不转**——接触微扰不再画成乱转）
+                if (abs(b.vx) + abs(b.vy) > 2f) b.angle += b.av * sub
+                else { b.av *= 0.6f }   // 静止时快速衰掉角速度残余
                 // 角速度阻尼 + 限幅（2026-10-31 修「水果不停快速旋转」：接触每帧累加 av 且空中无阻尼 → 无限自旋）
                 b.av *= 0.99f
                 if (abs(b.av) < 0.1f) b.av = 0f
