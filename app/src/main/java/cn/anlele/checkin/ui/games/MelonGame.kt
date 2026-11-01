@@ -78,6 +78,35 @@ fun MelonGame(
     var frameTick by remember { mutableIntStateOf(0) }
     val flashes = remember { mutableListOf<Flash>() }
 
+    // 体感（2026-11-01 站主定）：倾斜控方向（限幅 ±0.45 → 最大水平力≈10%g，温和）+ 摇晃横推（小幅脉冲）
+    val sensorCtx = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.DisposableEffect(engine) {
+        val sm = sensorCtx.getSystemService(android.content.Context.SENSOR_SERVICE) as android.hardware.SensorManager
+        val sensor = sm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)
+        var lastShake = 0L
+        val listener = object : android.hardware.SensorEventListener {
+            override fun onSensorChanged(e: android.hardware.SensorEvent) {
+                val gx = e.values[0]; val gy = e.values[1]; val gz = e.values[2]
+                // 倾斜：横向分量映射 -1..1，死区 0.06、限幅 0.45（幅度不要太大）
+                val tilt = (gx / 9.81f).coerceIn(-0.45f, 0.45f)
+                engine.tiltX = if (kotlin.math.abs(tilt) < 0.06f) 0f else tilt
+                // 摇晃：加速度总量突变 > 3.2 m/s² 且冷却 400ms → 沿晃动方向小推
+                val a = sqrt(gx * gx + gy * gy + gz * gz)
+                val now = System.currentTimeMillis()
+                if (kotlin.math.abs(a - 9.81f) > 3.2f && now - lastShake > 400) {
+                    lastShake = now
+                    engine.shake(if (gx >= 0) 1f else -1f)
+                }
+            }
+            override fun onAccuracyChanged(s: android.hardware.Sensor?, acc: Int) {}
+        }
+        if (sensor != null) sm.registerListener(listener, sensor, android.hardware.SensorManager.SENSOR_DELAY_GAME)
+        onDispose {
+            sm.unregisterListener(listener)
+            engine.tiltX = 0f
+        }
+    }
+
     LaunchedEffect(over, engine) {
         if (over) return@LaunchedEffect
         var last = 0L
@@ -249,7 +278,7 @@ internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Lo
         const val ITER = 8
         const val DROP_Y = 46f
         const val WARN_Y = 96f
-        const val OVER_GRACE = 0.8f
+        const val OVER_GRACE = 1.5f   // 越线停留缓冲（2026-11-01 站主定：稳定之后再判定，放宽 0.8→1.5）
         const val MERGE_LOCK = 8
         const val DROP_COOLDOWN = 0.35f
         val WEIGHTS = intArrayOf(2, 3, 4, 1, 2)   // 橘子最常见、柠檬最少（M8）
@@ -267,6 +296,15 @@ internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Lo
     var score = 0; private set
     var over = false; private set
     var overTimer = 0f; private set
+
+    /** 体感倾斜输入（-1..1，传感器喂；限幅在传感器侧）。水平力 = 重力×0.22×tiltX（温和） */
+    var tiltX = 0f
+
+    /** 摇晃脉冲：给全体水果一个横向小推（幅度小） */
+    fun shake(dirX: Float) {
+        val d = if (dirX > 0) 1f else -1f
+        for (b in bodies) if (!b.dead) b.vx += d * 5f
+    }
     var curLevel = rollLevel(); private set
     var nextLevel = rollLevel(); private set
     var aimX = width / 2; private set
@@ -379,6 +417,7 @@ internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Lo
             for (b in bodies) {
                 if (b.dead) continue
                 b.vy += GRAVITY * sub
+                if (tiltX != 0f) b.vx += GRAVITY * 0.22f * tiltX * sub   // 体感倾斜：水平力=重力 22%×tilt（限幅后≤10%g，温和）
                 b.x += b.vx * sub; b.y += b.vy * sub
                 b.angle += b.av * sub
                 // 角速度阻尼 + 限幅（2026-10-31 修「水果不停快速旋转」：接触每帧累加 av 且空中无阻尼 → 无限自旋）
@@ -406,14 +445,15 @@ internal class MelonEngine(val width: Float = W, val height: Float = H, seed: Lo
             }
             if (cool > 0) cool -= sub
 
-            // 警戒线：**顶部边缘**越线且静止 > 缓冲 → 判负
-            // （2026-10-31 修：原用质心 b.y，堆高时顶部越线但质心仍在线下 → 永远不判负；
-            //   速度门限 30→60 容忍堆叠抖动，age>1.5s 兜底；落体高速穿线由 age/speed 双门挡住）
+            // 警戒线：**顶部边缘**越线且**物理稳定后**才判负
+            // （2026-10-31 修质心口径；2026-11-01 站主定「稳定之后再判定」：静止=速度真小 <28，
+            //   长时间微动兜底 age>3s&&速度<130；落体/滚动高速穿线不误判。缓冲 OVER_GRACE 1.5s）
             var resting = false
             for (b in bodies) {
-                if (b.age > 0.4f && (b.y - b.r) < WARN_Y && (abs(b.vx) + abs(b.vy) < 60f || b.age > 1.5f)) { resting = true; break }
+                if (b.age > 0.6f && (b.y - b.r) < WARN_Y &&
+                    (abs(b.vx) + abs(b.vy) < 28f || (b.age > 3f && abs(b.vx) + abs(b.vy) < 130f))) { resting = true; break }
             }
-            overTimer = if (resting) overTimer + sub else maxOf(0f, overTimer - sub * 2)
+            overTimer = if (resting) overTimer + sub else maxOf(0f, overTimer - sub * 1.5f)
             if (overTimer >= OVER_GRACE) over = true
         }
     }
