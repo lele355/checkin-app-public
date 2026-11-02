@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -79,7 +80,7 @@ fun PeriodScreen(vm: AppVm) {
 
         ) {
 
-            item { PageHeadCard(title = "经期助手", hint = "仅自己可见") }
+            item { PageHeadCard(title = "经期助手", hint = "情侣互见 · 双方可看可记") }
             data.predict?.let { pr ->
                 item {
                     AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
@@ -101,6 +102,16 @@ fun PeriodScreen(vm: AppVm) {
                                 fontSize = 11.5.sp,
                                 color = p.textWeak,
                             )
+                            // 对方预测（情侣互见）
+                            data.partnerPredict?.let { pp ->
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "${data.partnerName ?: "TA"} 的预计下次：${Dates.dayMonth(pp.nextDate)}（" +
+                                        (if (pp.daysLeft >= 0) "还有 ${pp.daysLeft} 天" else "已推迟 ${-pp.daysLeft} 天") + "）",
+                                    fontSize = 11.5.sp,
+                                    color = p.textWeak,
+                                )
+                            }
                         }
                     }
                 }
@@ -124,12 +135,18 @@ fun PeriodScreen(vm: AppVm) {
                     }) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(
-                                    Dates.dayMonth(r.startDate) + (r.endDate?.let { " ~ ${Dates.dayMonth(it)}" } ?: " 起"),
-                                    fontSize = 14.sp,
-                                    color = p.text,
-                                    fontWeight = FontWeight.Medium,
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        Dates.dayMonth(r.startDate) + (r.endDate?.let { " ~ ${Dates.dayMonth(it)}" } ?: " 起"),
+                                        fontSize = 14.sp,
+                                        color = p.text,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                    if (r.owner.isNotBlank()) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(r.owner, fontSize = 10.sp, color = p.accent)
+                                    }
+                                }
                                 if (r.note.isNotBlank())
                                     Text(r.note, fontSize = 11.5.sp, color = p.textWeak)
                             }

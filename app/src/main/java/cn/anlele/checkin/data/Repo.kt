@@ -59,7 +59,7 @@ object Repo {
     @Serializable data class AnnivReq(val title: String, val date: String, val repeatYearly: Boolean = true, val note: String = "")
     @Serializable data class ContentReq(val content: String)
     @Serializable data class CoupleReq(val title: String, val startDate: String)
-    @Serializable data class PeriodReq(val startDate: String, val endDate: String? = null, val note: String = "")
+    @Serializable data class PeriodReq(val startDate: String, val endDate: String? = null, val note: String = "", val userId: Int? = null)   // userId：归属人（可给对方记）
     @Serializable data class AiSendReq(val text: String = "", val image: String? = null)
     @Serializable data class ExecReq(val msgId: Int, val actIndex: Int)
     @Serializable data class AccountReq(
@@ -205,6 +205,24 @@ object Repo {
 
     // ---------- 情侣空间 ----------
     suspend fun couple(): CouplePageDto = Api.get("/couples")
+
+    // ---- 情侣大类：心情 / 排便（2026-11-02 站主规划，双方互见） ----
+    @Serializable data class MoodReq(val date: String? = null, val mood: Int, val note: String? = null, val userId: Int? = null)
+    suspend fun moods(month: String): MoodListDto = Api.get("/couple/moods?month=$month")
+    suspend fun setMood(req: MoodReq): IdDto = Api.put("/couple/mood", enc(req, MoodReq.serializer()))
+    @Serializable data class PoopReq(val at: String? = null, val note: String? = null, val userId: Int? = null)
+    suspend fun poops(month: String): PoopListDto = Api.get("/couple/poops?month=$month")
+    suspend fun tapPoop(req: PoopReq = PoopReq()): IdDto = Api.post("/couple/poop", enc(req, PoopReq.serializer()))
+    suspend fun deletePoop(id: Int) { Api.exec("DELETE", "/couple/poop/$id") }
+    @Serializable data class AskReq(val content: String, val toUserId: Int? = null)
+    @Serializable data class AnswerReq(val content: String)
+    suspend fun questions(status: String = "all", month: String? = null, page: Int = 1): QuestionListDto =
+        Api.get("/couple/questions?status=$status" + (month?.let { "&month=$it" } ?: "") + "&page=$page")
+    suspend fun ask(req: AskReq): IdDto = Api.post("/couple/question", enc(req, AskReq.serializer()))
+    suspend fun answerQuestion(id: Int, req: AnswerReq): IdDto = Api.post("/couple/question/$id/answer", enc(req, AnswerReq.serializer()))
+    suspend fun deleteQuestion(id: Int) { Api.exec("DELETE", "/couple/question/$id") }
+    suspend fun summaries(): SummaryListDto = Api.get("/couple/summaries")
+    suspend fun generateSummary(): IdDto = Api.post("/couple/summary", "")
     suspend fun saveCouple(req: CoupleReq) { Api.exec("PUT", "/couples/setting", enc(req, CoupleReq.serializer())) }
     suspend fun postNote(text: String): IdDto = Api.post("/couples/notes", enc(ContentReq(text), ContentReq.serializer()))
     suspend fun deleteNote(id: Int) { Api.exec("DELETE", "/couples/notes/$id") }

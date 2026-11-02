@@ -36,6 +36,7 @@ import cn.anlele.checkin.AppVm
 import cn.anlele.checkin.data.ApiException
 import cn.anlele.checkin.data.CouplePageDto
 import cn.anlele.checkin.data.LoveNoteDto
+import cn.anlele.checkin.data.PeriodPageDto
 import cn.anlele.checkin.data.Repo
 import cn.anlele.checkin.ui.components.AppCard
 import cn.anlele.checkin.ui.components.AppField
@@ -56,6 +57,7 @@ fun CoupleScreen(vm: AppVm) {
     val p = palette
     val scope = rememberCoroutineScope()
     var d by remember { mutableStateOf<CouplePageDto?>(null) }
+    var pd by remember { mutableStateOf<PeriodPageDto?>(null) }
     var text by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var settingOpen by remember { mutableStateOf(false) }
@@ -70,6 +72,8 @@ fun CoupleScreen(vm: AppVm) {
         } finally {
             loading = false
         }
+        // 经期速览（情侣互见，加载失败不打扰主流程）
+        runCatching { pd = Repo.period() }
     }
 
     LaunchedEffect(Unit) { load() }
@@ -129,6 +133,52 @@ fun CoupleScreen(vm: AppVm) {
                         }
                         Spacer(Modifier.height(12.dp))
                         TinyAction("修改设置", "settings-2") { settingOpen = true }
+                    }
+                }
+            }
+
+            // 情侣功能（2026-11-02 站主规划：情侣大类聚合，心情/排便/提问/总结批 ②③④ 上线）
+            item {
+                Text("情侣功能", fontSize = 13.sp, color = p.textSub, fontWeight = FontWeight.Medium)
+            }
+            item {
+                AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(14.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("🌸 经期", fontSize = 12.sp, color = p.text)
+                        Text("😊 心情", fontSize = 12.sp, color = p.textWeak)
+                        Text("💩 排便", fontSize = 12.sp, color = p.textWeak)
+                        Text("❓ 提问", fontSize = 12.sp, color = p.textWeak)
+                        Text("📊 总结", fontSize = 12.sp, color = p.textWeak)
+                    }
+                }
+            }
+
+            // 经期速览（情侣互见：双方预测）
+            pd?.let { pg ->
+                if (pg.predict != null || pg.partnerPredict != null) {
+                    item {
+                        Text("经期速览", fontSize = 13.sp, color = p.textSub, fontWeight = FontWeight.Medium)
+                    }
+                    item {
+                        AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(14.dp)) {
+                            Column {
+                                pg.predict?.let { pr ->
+                                    Text(
+                                        "我的预计下次：${Dates.dayMonth(pr.nextDate)}（" +
+                                            (if (pr.daysLeft >= 0) "还有 ${pr.daysLeft} 天" else "已推迟 ${-pr.daysLeft} 天") + "）",
+                                        fontSize = 12.sp, color = p.text,
+                                    )
+                                }
+                                pg.partnerPredict?.let { pp ->
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "${pg.partnerName ?: "TA"} 的预计下次：${Dates.dayMonth(pp.nextDate)}（" +
+                                            (if (pp.daysLeft >= 0) "还有 ${pp.daysLeft} 天" else "已推迟 ${-pp.daysLeft} 天") + "）",
+                                        fontSize = 12.sp, color = p.textWeak,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -68,6 +68,10 @@ import cn.anlele.checkin.ui.screens.ExpensesScreen
 import cn.anlele.checkin.ui.screens.ExportScreen
 import cn.anlele.checkin.ui.screens.GamesScreen
 import cn.anlele.checkin.ui.screens.HabitsScreen
+import cn.anlele.checkin.ui.screens.MoodScreen
+import cn.anlele.checkin.ui.screens.PoopScreen
+import cn.anlele.checkin.ui.screens.QuestionScreen
+import cn.anlele.checkin.ui.screens.SummaryScreen
 import cn.anlele.checkin.ui.screens.InvitesScreen
 import cn.anlele.checkin.ui.components.ChangelogSheet
 import cn.anlele.checkin.ui.components.UpdateSheet
@@ -363,6 +367,10 @@ private fun ScreenHost(
         "board" -> BoardScreen(vm)
         "games" -> GamesScreen(vm, setModuleBack = setModuleBack)
         "couples" -> CoupleScreen(vm)
+        "mood" -> MoodScreen(vm)
+        "poop" -> PoopScreen(vm)
+        "questions" -> QuestionScreen(vm)
+        "summary" -> SummaryScreen(vm)
         "period" -> PeriodScreen(vm)
         "reminders" -> RemindersScreen(vm, go)
         "ai" -> AiScreen(vm, onSwitchAccount = onAccounts)

@@ -513,6 +513,8 @@ data class CouplePageDto(
 @Serializable
 data class PeriodRecordDto(
     val id: Int = 0,
+    val userId: Int = 0,          // 归属人（情侣互见：双方可看可记）
+    val owner: String = "",       // 归属显示名
     val startDate: String = "",
     val endDate: String? = null,
     val note: String = "",
@@ -531,7 +533,79 @@ data class PeriodPredictDto(
 data class PeriodPageDto(
     val items: List<PeriodRecordDto> = emptyList(),
     val predict: PeriodPredictDto? = null,
+    val partnerPredict: PeriodPredictDto? = null,   // 对方预测（情侣互见）
+    val partnerName: String? = null,
     val today: String = "",
+)
+
+// ---- 情侣大类：心情 / 排便（2026-11-02，双方互见） ----
+@Serializable
+data class MoodItemDto(
+    val userId: Int = 0,
+    val owner: String = "",
+    val date: String = "",
+    val mood: Int = 1,
+    val note: String = "",
+)
+
+@Serializable
+data class MoodListDto(
+    val items: List<MoodItemDto> = emptyList(),
+    val moods: List<String> = emptyList(),
+)
+
+@Serializable
+data class PoopItemDto(
+    val id: Int = 0,
+    val userId: Int = 0,
+    val owner: String = "",
+    val at: String = "",
+    val note: String = "",
+)
+
+@Serializable
+data class PoopListDto(
+    val items: List<PoopItemDto> = emptyList(),
+)
+
+// ---- 情侣大类：互相提问（互问互答，分页/筛选控条数） ----
+@Serializable
+data class QuestionItemDto(
+    val id: Int = 0,
+    val from: String = "",
+    val fromId: Int = 0,
+    val to: String = "",
+    val toId: Int = 0,
+    val content: String = "",
+    val answer: String? = null,
+    val askedAt: String = "",
+    val answeredAt: String? = null,
+    val mineToAnswer: Boolean = false,
+)
+
+@Serializable
+data class QuestionListDto(
+    val items: List<QuestionItemDto> = emptyList(),
+    val total: Int = 0,
+    val page: Int = 1,
+    val pages: Int = 1,
+    val unanswered: Int = 0,
+)
+
+// ---- 情侣大类：AI 月度总结（每日阶段 + 月末定稿，留存可查） ----
+@Serializable
+data class SummaryItemDto(
+    val id: Int = 0,
+    val month: String = "",
+    val scopeDays: Int = 0,
+    val isFinal: Boolean = false,
+    val content: String = "",
+    val generatedAt: String = "",
+)
+
+@Serializable
+data class SummaryListDto(
+    val items: List<SummaryItemDto> = emptyList(),
 )
 
 @Serializable
