@@ -447,6 +447,18 @@ internal class FishEngine(val width: Float = W, val height: Float = H) {
     }
 
     fun radius(lvl: Int) = 10f + lvl * 5f
+
+    /** 视觉鱼形椭圆半轴（与 drawFishShape 各 kind 几何同源）：判定贴合贴图（2026-11-02 站主定：判定大小和贴图对不上） */
+    fun halfAxes(lvl: Int, kind: Int): Pair<Float, Float> {
+        val r = radius(lvl)
+        return when (kind) {
+            1 -> r * 1.25f to r * 0.82f    // 梭鱼（尖嘴+身）
+            2 -> r * 1.1f to r * 0.95f     // 鳐（菱形身）
+            3 -> r * 1.0f to r * 0.7f      // 水母（伞盖；触手不算判定）
+            4 -> r * 1.05f to r * 0.85f    // 鲨（身+背鳍包络）
+            else -> r * 1.05f to r * 0.82f // 普通鱼
+        }
+    }
     fun growthNeed() = 4 + level * 2
     private fun fishValue(l: Int) = VALUES[min(l, 6)]
     fun comboMult(): Double = if (chain >= 6) 2.0 else if (chain >= 3) 1.5 else 1.0
@@ -577,26 +589,31 @@ internal class FishEngine(val width: Float = W, val height: Float = H) {
             if (b.y < -6f) { b.y = height + 6f; b.x = Math.random().toFloat() * width }
         }
 
-        // 吃珍珠（F10）
-        val pr = radius(level)
+        // 吃珍珠（F10）——椭圆判定（玩家视觉半轴+珍珠半径，贴图即判定）
+        val (phx, phy) = halfAxes(level, 4)   // 玩家=鲨形
         val pit = pearls.iterator()
         while (pit.hasNext()) {
             val po = pit.next()
             po.t += dt * 3f
-            if (hypot(po.x - px, po.y - py) < pr + po.r + 2f) {
+            val pdx = po.x - px; val pdy = po.y - py
+            val pex = phx + po.r + 2f; val pey = phy + po.r + 2f
+            if (pdx * pdx / (pex * pex) + pdy * pdy / (pey * pey) < 1f) {
                 pit.remove()
                 score += 10
                 evEat++
             }
         }
 
-        // 吃鱼 / 被吃（F2/F7/F8/F12）。同样：迭代中只 remove，补鱼放到循环外。
+        // 吃鱼 / 被吃（F2/F7/F8/F12）——椭圆接触（双方视觉半轴求和，2026-11-02 判定贴合贴图）。同样：迭代中只 remove，补鱼放到循环外。
         var eaten = 0
         val fit = fishes.iterator()
         while (fit.hasNext()) {
             val fi = fit.next()
-            val rr = radius(fi.level) + pr - 4f
-            if (hypot(fi.x - px, fi.y - py) >= rr) continue
+            val (fhx, fhy) = halfAxes(fi.level, fi.kind)
+            val ex = phx + fhx - 4f
+            val ey = phy + fhy - 4f
+            val dx = fi.x - px; val dy = fi.y - py
+            if (dx * dx / (ex * ex) + dy * dy / (ey * ey) >= 1f) continue
             if (fi.kind < 3 && fi.level <= level) {          // 普通鱼：不大于自己可吃（同级可吃）
                 chain++
                 chainTimer = 3f
