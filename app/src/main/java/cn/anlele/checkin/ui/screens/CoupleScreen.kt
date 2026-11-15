@@ -44,6 +44,7 @@ import cn.anlele.checkin.ui.components.DateField
 import cn.anlele.checkin.ui.components.EditSheet
 import cn.anlele.checkin.ui.components.IconBtn
 import cn.anlele.checkin.ui.components.PageHeadCard
+import cn.anlele.checkin.ui.components.SecondaryButton
 import cn.anlele.checkin.ui.components.TinyAction
 import cn.anlele.checkin.ui.icons.AppIcons
 import cn.anlele.checkin.ui.theme.cardBackground
@@ -58,6 +59,8 @@ fun CoupleScreen(vm: AppVm) {
     val scope = rememberCoroutineScope()
     var d by remember { mutableStateOf<CouplePageDto?>(null) }
     var pd by remember { mutableStateOf<PeriodPageDto?>(null) }
+    // 今日心情（uid, name, mood?, round）——原小纸条位置（2026-11-02 站主定）
+    var todayMoods by remember { mutableStateOf<List<Triple<Int, String, Int?>>>(emptyList()) }
     var text by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var settingOpen by remember { mutableStateOf(false) }
@@ -74,6 +77,16 @@ fun CoupleScreen(vm: AppVm) {
         }
         // 经期速览（情侣互见，加载失败不打扰主流程）
         runCatching { pd = Repo.period() }
+        // 今日心情速览（失败不打扰）
+        runCatching {
+            val month = java.time.LocalDate.now().toString().take(7)
+            val today = java.time.LocalDate.now().toString()
+            val items = Repo.moods(month).items.filter { it.date == today }
+            val owners = items.map { it.userId }.distinct()
+            todayMoods = owners.mapIndexed { i, u ->
+                Triple(u, items.firstOrNull { it.userId == u }?.owner ?: "TA", items.firstOrNull { it.userId == u }?.mood)
+            }
+        }
     }
 
     LaunchedEffect(Unit) { load() }
@@ -116,7 +129,7 @@ fun CoupleScreen(vm: AppVm) {
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(
                                 "${d?.daysTogether ?: 0}",
-                                fontSize = 42.sp,
+                                fontSize = 32.sp,
                                 color = p.accent,
                                 fontWeight = FontWeight.SemiBold,
                             )
@@ -133,22 +146,6 @@ fun CoupleScreen(vm: AppVm) {
                         }
                         Spacer(Modifier.height(12.dp))
                         TinyAction("修改设置", "settings-2") { settingOpen = true }
-                    }
-                }
-            }
-
-            // 情侣功能（2026-11-02 站主规划：情侣大类聚合，心情/排便/提问/总结批 ②③④ 上线）
-            item {
-                Text("情侣功能", fontSize = 13.sp, color = p.textSub, fontWeight = FontWeight.Medium)
-            }
-            item {
-                AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(14.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("🌸 经期", fontSize = 12.sp, color = p.text)
-                        Text("😊 心情", fontSize = 12.sp, color = p.textWeak)
-                        Text("💩 排便", fontSize = 12.sp, color = p.textWeak)
-                        Text("❓ 提问", fontSize = 12.sp, color = p.textWeak)
-                        Text("📊 总结", fontSize = 12.sp, color = p.textWeak)
                     }
                 }
             }
@@ -183,30 +180,42 @@ fun CoupleScreen(vm: AppVm) {
                 }
             }
 
-            item { Text("小纸条", fontSize = 13.sp, color = p.textSub, fontWeight = FontWeight.Medium) }
-
-            if (d?.notes.isNullOrEmpty() && !loading) {
-                item { Text("还没有小纸条", fontSize = 12.5.sp, color = p.textWeak) }
-            } else {
-                val notes = d?.notes.orEmpty()
-                items(notes.size) { i -> NoteBubble(notes[i]) { scope.launch { runCatching { Repo.deleteNote(notes[i].id) }; load() } } }
+            // 今日心情（2026-11-02 站主定：原小纸条位置）——双方今日贴纸 + 快捷入口
+            item {
+                Text("今日心情", fontSize = 13.sp, color = p.textSub, fontWeight = FontWeight.Medium)
             }
-        }
-
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .cardBackground(p)
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.weight(1f)) {
-                AppField("", text, { text = it }, placeholder = "写张小纸条…", singleLine = false, minLines = 1, maxLines = 4)
+            item {
+                AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        todayMoods.forEachIndexed { i, (uid, name, mood) ->
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                if (mood != null) {
+                                    cn.anlele.checkin.ui.components.MoodSticker(mood = mood, round = i == 0, size = 44.dp)
+                                } else {
+                                    Text("＋", fontSize = 26.sp, color = p.textWeak.copy(alpha = .35f))
+                                }
+                                Text(name, fontSize = 10.sp, color = p.textWeak)
+                            }
+                            Spacer(Modifier.width(26.dp))
+                        }
+                        Spacer(Modifier.weight(1f))
+                        SecondaryButton("去记") { vm.openRoute("mood") }
+                    }
+                }
             }
-            Spacer(Modifier.width(6.dp))
-            IconBtn("send", "发送", size = 44.dp, tint = if (text.isBlank()) p.textWeak else p.accent) { send() }
+
+            // 小纸条入口（2026-11-02 站主定：独立成页）
+            item {
+                AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(14.dp), onClick = { vm.openRoute("lovenotes") }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("💌", fontSize = 18.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("小纸条", fontSize = 13.sp, color = p.text, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.weight(1f))
+                        Text("写一张 →", fontSize = 11.sp, color = p.textWeak)
+                    }
+                }
+            }
         }
     }
 

@@ -89,6 +89,28 @@ object Dates {
         }
     }
 
+    /**
+     * 账单时间文案（精确到分钟）：今天 12:30 / 10月24日 12:30。
+     * 服务端只给日期（老数据，或用户没选时刻）时只显示日期，不写假的 00:00。
+     */
+    fun expenseWhen(s: String?): String {
+        if (s.isNullOrBlank()) return ""
+        val base = relative(s)
+        val t = if (s.length >= 16) hhmm(s) else ""
+        return if (t.isBlank() || t == "00:00") base else "$base $t"
+    }
+
+    /**
+     * 从账单的 occurDate 里取出时刻（HH:mm）。
+     * 只有日期（老数据）或正好 00:00 时返回空串 —— 交给时间选择器显示「选择时间」，
+     * 用户不动它就仍然只是一笔「只知道日期」的账。
+     */
+    fun minuteOf(s: String?): String {
+        if (s == null || s.length < 16) return ""
+        val t = hhmm(s)
+        return if (t == "00:00") "" else t
+    }
+
     /** 日程时间文案：全天 / 09:00 / 09:00 ~ 10:00（跨天会自动带日期） */
     fun range(startAt: String?, endAt: String?, allDay: Boolean, withDate: Boolean = false): String {
         if (allDay) return if (withDate) "${relative(startAt)} 全天" else "全天"

@@ -11,6 +11,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +43,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -216,6 +218,8 @@ fun GroupHead(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun SiteRow(
     onClick: (() -> Unit)? = null,
+    /** 长按（记账里用来进「多选合并」和条目管理）。给了它就走手势识别，单击仍然有效 */
+    onLongClick: (() -> Unit)? = null,
     showTopBorder: Boolean = true,
     meta: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
@@ -234,7 +238,20 @@ fun SiteRow(
         Row(
             Modifier
                 .fillMaxWidth()
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .then(
+                    when {
+                        // 长按 + 单击要同时存在，只能用底层手势识别；
+                        // clickable 的 onLongClick 是实验 API，这里不跟它绑版本。
+                        onLongClick != null -> Modifier.pointerInput(onClick, onLongClick) {
+                            detectTapGestures(
+                                onTap = { onClick?.invoke() },
+                                onLongPress = { onLongClick.invoke() },
+                            )
+                        }
+                        onClick != null -> Modifier.clickable(onClick = onClick)
+                        else -> Modifier
+                    }
+                )
                 .padding(horizontal = 16.dp, vertical = 13.dp),
             verticalAlignment = Alignment.Top,
         ) {

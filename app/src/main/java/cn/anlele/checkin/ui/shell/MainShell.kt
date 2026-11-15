@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
@@ -68,6 +70,7 @@ import cn.anlele.checkin.ui.screens.ExpensesScreen
 import cn.anlele.checkin.ui.screens.ExportScreen
 import cn.anlele.checkin.ui.screens.GamesScreen
 import cn.anlele.checkin.ui.screens.HabitsScreen
+import cn.anlele.checkin.ui.screens.LoveNotesScreen
 import cn.anlele.checkin.ui.screens.MoodScreen
 import cn.anlele.checkin.ui.screens.PoopScreen
 import cn.anlele.checkin.ui.screens.QuestionScreen
@@ -367,6 +370,7 @@ private fun ScreenHost(
         "board" -> BoardScreen(vm)
         "games" -> GamesScreen(vm, setModuleBack = setModuleBack)
         "couples" -> CoupleScreen(vm)
+        "lovenotes" -> LoveNotesScreen(vm)
         "mood" -> MoodScreen(vm)
         "poop" -> PoopScreen(vm)
         "questions" -> QuestionScreen(vm)
@@ -473,23 +477,92 @@ private fun SidebarContent(
             Spacer(Modifier.height(10.dp))
         }
 
-        // 底部固定项：我的 / 切换账号 / 外观 / 退出
-        Column(Modifier.padding(horizontal = 10.dp)) {
-            Box(Modifier.fillMaxWidth().height(1.dp).background(p.border))
-            Spacer(Modifier.height(6.dp))
-            NavRow(NavItemDto(code = "me", label = "我的", icon = "user-cog"), active == "me") { onGo("me") }
-            // 「切换账号」放在「我的」下面而不是藏进设置：多账号是高频动作，
-            // 而且这是唯一能一眼看出「本机还存了几个号」的地方，右侧带个计数。
-            NavRow(
-                NavItemDto(code = "switch-account", label = "切换账号", icon = "arrow-left-right"),
-                false,
-                trailing = if (accountCount > 1) "${accountCount - 1} 个可选" else null,
-            ) { onAccounts() }
-            // 「设置」独立成页：外观 / 通知 / 权限 / 更新 / 数据 / 账号都收进去了，
-            // 「我的」只留个人资料，两个页面各管一件事
-            NavRow(NavItemDto(code = "settings", label = "设置", icon = "settings-2"), active == "settings") { onGo("settings") }
-            NavRow(NavItemDto(code = "logout", label = "退出登录", icon = "log-out"), false) { onLogout() }
-            Spacer(Modifier.height(10.dp))
+        // 底部账户区（2026-11-03 站主定：左=头像+账户+名字，右=设置+退出登录）
+        //
+        // 【2026-11-13 修两处】① 原来在整行左下角垫了一个 190dp 宽的透明热区来开气泡，
+        // 它压住了右边的「设置」——点设置变成弹菜单；② 气泡偏移写死 -112dp，而菜单
+        // 两个选项只有约 96dp 高，于是整块浮在账户栏上方一百多 dp，看着像从侧栏中间冒出来。
+        // 现在菜单直接锚在账户块自己身上、偏移交给 Material 自己算（下方空间不够会自动
+        // 翻到上方贴住），设置与退出各自直达，不再有任何覆盖层。
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            var showAccountMenu by remember { mutableStateOf(false) }
+
+            // 左：头像 + 账户 + 名字（点这里弹气泡）
+            Box {
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { showAccountMenu = true }
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(44.dp).clip(CircleShape).background(p.accent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            me.displayName.take(1).ifBlank { "我" },
+                            fontSize = 18.sp, color = Color.White, fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text("账户", fontSize = 14.sp, color = p.text, fontWeight = FontWeight.SemiBold)
+                        Text(me.displayName, fontSize = 12.sp, color = p.textWeak, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+
+                // 气泡选项框：我的 / 切换账号。
+                // 不传 offset：账户栏贴着屏幕底边，下方放不下菜单，Material 会自己翻到上方，
+                // 底边正好压在账户块顶边（硬编码偏移是 2.10.x 那次位置跑偏的根因）。
+                androidx.compose.material3.DropdownMenu(
+                    expanded = showAccountMenu,
+                    onDismissRequest = { showAccountMenu = false },
+                    shape = RoundedCornerShape(p.radiusCard),
+                    containerColor = p.card,
+                    shadowElevation = 10.dp,
+                    modifier = Modifier.border(1.dp, p.border, RoundedCornerShape(p.radiusCard)),
+                ) {
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text("我的", color = p.text, fontSize = 14.sp) },
+                        leadingIcon = { Icon(AppIcons["user-cog"], null, Modifier.size(18.dp), tint = p.textSub) },
+                        onClick = { showAccountMenu = false; onGo("me") },
+                    )
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (accountCount > 1) "切换账号（${accountCount - 1} 个可选）" else "切换账号",
+                                color = p.text, fontSize = 14.sp,
+                            )
+                        },
+                        leadingIcon = { Icon(AppIcons["arrow-left-right"], null, Modifier.size(18.dp), tint = p.textSub) },
+                        onClick = { showAccountMenu = false; onAccounts() },
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            // 右：设置（图标+文字）——直接进设置页，不经过气泡
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onGo("settings") }.padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Icon(AppIcons["settings-2"], null, Modifier.size(22.dp), tint = p.text)
+                Spacer(Modifier.height(3.dp))
+                Text("设置", fontSize = 11.sp, color = p.text)
+            }
+            Spacer(Modifier.width(6.dp))
+            // 右：退出登录
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onLogout() }.padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Icon(AppIcons["log-out"], null, Modifier.size(22.dp), tint = p.text)
+                Spacer(Modifier.height(3.dp))
+                Text("退出登录", fontSize = 11.sp, color = p.text)
+            }
         }
         Spacer(Modifier.navigationBarsPadding())
     }

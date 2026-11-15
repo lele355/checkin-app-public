@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -116,13 +117,14 @@ fun MemoScreen(vm: AppVm) {
                 }
             }
         } else if (view == "列表") {
-            // 置顶的排最前，其余按更新时间。拖不动，但顺序必须可预期。
+            // 未完成在前、已完成在后（2026-11-03 站主定）；组内置顶优先
             val sorted = rows.sortedWith(
-                compareByDescending<MemoDto> { it.pinned }.thenByDescending { it.updatedAt }
+                compareBy<MemoDto> { it.done }.thenByDescending { it.pinned }.thenByDescending { it.updatedAt }
             )
-            items(sorted.size, key = { sorted[it].id }) { i ->
-                val m = sorted[i]
-                // animateItem：置顶/取消置顶时能看到这条「挪上去/滑下来」的过程
+            val todoList = sorted.filter { !it.done }
+            val doneList = sorted.filter { it.done }
+            items(todoList.size, key = { todoList[it].id }) { i ->
+                val m = todoList[i]
                 Box(Modifier.animateItem()) {
                     AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
                         Column {
@@ -131,7 +133,11 @@ fun MemoScreen(vm: AppVm) {
                                 onClick = { editing = m; editorOpen = true },
                                 trailing = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        // 工作台同款置顶按钮：点一下切换，立刻生效
+                                        // 完成按钮（2026-11-03 站主定）
+                                        TinyAction(if (m.done) "取消完成" else "完成", "check") {
+                                            scope.launch { runCatching { Repo.toggleDone(m.id) }; load() }
+                                        }
+                                        Spacer(Modifier.width(4.dp))
                                         TinyAction(if (m.pinned) "取消置顶" else "置顶", "pin") {
                                             scope.launch {
                                                 runCatching {
@@ -175,11 +181,50 @@ fun MemoScreen(vm: AppVm) {
                     }
                 }
             }
+            // 已完成组（2026-11-03 站主定：归纳分组）
+            if (doneList.isNotEmpty()) {
+                item {
+                    Text(
+                        "✓ 已完成（${doneList.size}）",
+                        fontSize = 12.sp, color = p.textSub, fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+                items(doneList.size, key = { "d" + doneList[it].id }) { i ->
+                    val m = doneList[i]
+                    Box(Modifier.animateItem()) {
+                        AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
+                            SiteRow(
+                                showTopBorder = false,
+                                onClick = { editing = m; editorOpen = true },
+                                trailing = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        TinyAction("取消完成", "check") {
+                                            scope.launch { runCatching { Repo.toggleDone(m.id) }; load() }
+                                        }
+                                        Spacer(Modifier.width(4.dp))
+                                        TinyAction("编辑", "pencil") { editing = m; editorOpen = true }
+                                    }
+                                },
+                            ) {
+                                Text(
+                                    m.title, fontSize = 13.5.sp, color = p.textWeak,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    textDecoration = TextDecoration.LineThrough,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         } else {
             item {
                 StaggerIn(0) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        rows.chunked(2).forEach { pair ->
+                        // 未完成在前（2026-11-03 站主定：归纳分组）
+                        val todoCards = rows.filter { !it.done }
+                        val doneCards = rows.filter { it.done }
+                        todoCards.chunked(2).forEach { pair ->
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 pair.forEach { m ->
                                     AppCard(
@@ -211,6 +256,43 @@ fun MemoScreen(vm: AppVm) {
                                     }
                                 }
                                 if (pair.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
+                        // 已完成组（2026-11-03 站主定：归纳分组）
+                        if (doneCards.isNotEmpty()) {
+                            Text(
+                                "✓ 已完成（${doneCards.size}）",
+                                fontSize = 12.sp, color = p.textSub, fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                            doneCards.chunked(2).forEach { pair ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    pair.forEach { m ->
+                                        AppCard(
+                                            Modifier.weight(1f).heightIn(min = 80.dp),
+                                            PaddingValues(13.dp),
+                                            onClick = { editing = m; editorOpen = true },
+                                        ) {
+                                            Column {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        m.title, fontSize = 12.5.sp, color = p.textWeak,
+                                                        fontWeight = FontWeight.Medium, maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        textDecoration = TextDecoration.LineThrough,
+                                                        modifier = Modifier.weight(1f),
+                                                    )
+                                                    TinyAction("取消完成", "check") {
+                                                        scope.launch { runCatching { Repo.toggleDone(m.id) }; load() }
+                                                    }
+                                                }
+                                                Spacer(Modifier.height(5.dp))
+                                                Text(Dates.fmt(m.updatedAt, "M月d日 HH:mm"), fontSize = 10.sp, color = p.textWeak)
+                                            }
+                                        }
+                                    }
+                                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                                }
                             }
                         }
                     }

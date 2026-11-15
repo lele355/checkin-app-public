@@ -25,7 +25,7 @@ import cn.anlele.checkin.ui.theme.palette
 import kotlinx.coroutines.launch
 
 private val MOOD_EMOJIS = listOf("😊", "😐", "😔", "😡", "😴", "🥰")
-private val MOOD_NAMES = listOf("开心", "平淡", "难过", "生气", "困", "害羞")
+private val MOOD_NAMES = listOf("生气", "难过", "困", "平淡", "害羞", "开心")
 
 /**
  * 心情记录 —— 情侣大类（2026-11-02 站主规划）：双方每日一个心情，日历双行表情视图。
@@ -38,6 +38,7 @@ fun MoodScreen(vm: AppVm) {
     var month by remember { mutableStateOf(java.time.LocalDate.now().toString().take(7)) }   // yyyy-MM
     var items by remember { mutableStateOf<List<MoodItemDto>>(emptyList()) }
     var names by remember { mutableStateOf<List<String>>(emptyList()) }
+    var members by remember { mutableStateOf<List<cn.anlele.checkin.data.MoodMemberDto>>(emptyList()) }
     var saveDay by remember { mutableStateOf<Int?>(null) }
     var saveOwner by remember { mutableStateOf(0) }
     var loading by remember { mutableStateOf(true) }
@@ -48,6 +49,7 @@ fun MoodScreen(vm: AppVm) {
             val d = Repo.moods(month)
             items = d.items
             names = d.items.map { it.owner }.distinct()
+            members = d.members
         } catch (e: Exception) {
             vm.toast(e.message ?: "加载失败")
         } finally {
@@ -57,9 +59,9 @@ fun MoodScreen(vm: AppVm) {
     LaunchedEffect(month) { load() }
 
     val byKey = remember(items) { items.associateBy { it.date to it.userId } }
-    val owners = remember(items) { items.map { it.userId }.distinct() }
-    val ownerNames = remember(items) { items.associate { it.userId to it.owner } }
-    val myUid = items.firstOrNull()?.userId ?: 0   // 归属展示顺序（自己的在上）
+    // 行归属固定（2026-11-02 站主定）：members 顺序=自己在前，永远第一行=自己、第二行=对方
+    val owners = remember(members) { members.map { it.userId } }
+    val ownerNames = remember(members) { members.associate { it.userId to it.name } }
 
     // 月历参数
     val (year, mon) = month.split("-").map { it.toInt() }
@@ -86,41 +88,77 @@ fun MoodScreen(vm: AppVm) {
                     }
                 }
             }
-            // 日历双行表情（每格：日期 + 各成员一行表情）
+            // 日历双行表情（大格子+固定行归属：上=自己圆脸 / 下=对方方脸）
             item {
-                AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(10.dp)) {
+                AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(12.dp)) {
                     Column {
+                        // 行归属图例（固定，不搞混）
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            for ((i, u) in owners.withIndex()) {
+                                cn.anlele.checkin.ui.components.MoodSticker(mood = 2, round = i == 0, size = 18.dp)
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    "${if (i == 0) "上" else "下"}：${ownerNames[u] ?: "TA"}",
+                                    fontSize = 11.sp, color = p.textWeak,
+                                )
+                                Spacer(Modifier.width(16.dp))
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
                         Row {
                             listOf("一", "二", "三", "四", "五", "六", "日").forEach {
-                                Text(it, Modifier.weight(1f), fontSize = 11.sp, color = p.textWeak, textAlign = TextAlign.Center)
+                                Text(it, Modifier.weight(1f), fontSize = 12.sp, color = p.textWeak, textAlign = TextAlign.Center)
                             }
                         }
                         Spacer(Modifier.height(4.dp))
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(7),
-                            modifier = Modifier.heightIn(max = 420.dp),
+                            modifier = Modifier.heightIn(max = 760.dp),
                             userScrollEnabled = false,
                         ) {
                             items((1..(offset + daysInMonth)).toList()) { idx ->
                                 if (idx <= offset) {
-                                    Spacer(Modifier.height(52.dp))
+                                    Spacer(Modifier.height(104.dp))
                                 } else {
                                     val day = idx - offset
                                     val dateStr = "$year-${mon.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}"
+                                    val isFuture = dateStr > java.time.LocalDate.now().toString()   // 不能给未来记心情（2026-11-02 站主定）
                                     Column(
                                         Modifier
-                                            .height(52.dp)
+                                            .height(104.dp)
                                             .fillMaxWidth()
-                                            .clickable { saveDay = day },
+                                            .then(if (isFuture) Modifier else Modifier.clickable { saveDay = day }),
                                         horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
                                     ) {
-                                        Text("$day", fontSize = 10.sp, color = p.textWeak)
-                                        for (u in owners) {
-                                            val m = byKey[dateStr to u]?.mood
-                                            Text(
-                                                m?.let { MOOD_EMOJIS.getOrElse(it - 1) { "·" } } ?: "·",
-                                                fontSize = 15.sp,
-                                            )
+                                        Text(
+                                            "$day",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (isFuture) p.textWeak.copy(alpha = .4f) else p.text,
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        // 固定两行：第一行=owners[0]（圆脸），第二行=owners[1]（方脸）
+                                        for ((i, u) in owners.withIndex()) {
+                                            Box(
+                                                Modifier.height(34.dp).fillMaxWidth(),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                val m = byKey[dateStr to u]?.mood
+                                                if (m != null) {
+                                                    cn.anlele.checkin.ui.components.MoodSticker(
+                                                        mood = m,
+                                                        round = i == 0,
+                                                        size = 32.dp,
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        "·",
+                                                        fontSize = 16.sp,
+                                                        color = p.textWeak.copy(alpha = if (isFuture) 0.25f else 0.3f),
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -137,13 +175,16 @@ fun MoodScreen(vm: AppVm) {
                         Spacer(Modifier.height(6.dp))
                         for (u in owners) {
                             val mine = items.filter { it.userId == u }
-                            val line = (1..6).mapNotNull { m -> mine.count { it.mood == m }.takeIf { it > 0 }?.let { "${MOOD_EMOJIS[m - 1]} $it" } }
-                            Row {
-                                Text(
-                                    (ownerNames[u] ?: "?") + "：",
-                                    fontSize = 12.sp, color = p.textWeak,
-                                )
-                                Text(line.joinToString("  "), fontSize = 12.sp, color = p.text)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text((ownerNames[u] ?: "?") + "：", fontSize = 12.sp, color = p.textWeak)
+                                for (m in 1..6) {
+                                    val c = mine.count { it.mood == m }
+                                    if (c > 0) {
+                                        // 统一贴纸脸（2026-11-02 站主定）
+                                        cn.anlele.checkin.ui.components.MoodSticker(mood = m, round = u == owners.firstOrNull(), size = 18.dp)
+                                        Text("×$c  ", fontSize = 11.sp, color = p.textWeak)
+                                    }
+                                }
                             }
                         }
                     }
@@ -151,39 +192,22 @@ fun MoodScreen(vm: AppVm) {
             }
         }
 
-        // 记录弹层（点日期格）
+        // 记录弹层（点日期格）——只能记自己的心情（2026-11-02 站主定）
         saveDay?.let { day ->
             val dateStr = "$year-${mon.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}"
             AppCard(Modifier.fillMaxWidth().padding(14.dp), padding = PaddingValues(14.dp)) {
                 Column {
-                    Text("记一个心情 · $mon 月 $day 日", fontSize = 13.sp, color = p.textSub, fontWeight = FontWeight.Medium)
+                    Text("记一个心情 · $mon 月 $day 日（自己的）", fontSize = 13.sp, color = p.textSub, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(8.dp))
-                    // 归属选择（双方互见可记）
-                    val ownerIds = owners.ifEmpty { listOf(0) }
-                    if (ownerIds.size > 1) {
-                        Row {
-                            ownerIds.forEach { u ->
-                                Text(
-                                    (ownerNames[u] ?: "TA"),
-                                    Modifier
-                                        .clickable { saveOwner = u }
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    fontSize = 12.sp,
-                                    color = if (saveOwner == u) p.accent else p.textWeak,
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(6.dp))
-                    }
-                    Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-                        MOOD_EMOJIS.forEachIndexed { i, e ->
-                            Text(
-                                e,
+                    Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        (1..6).forEach { m ->
+                            // 统一贴纸脸（2026-11-02 站主定：风格统一不用 emoji）
+                            Box(
                                 Modifier
                                     .clickable {
                                         scope.launch {
                                             runCatching {
-                                                Repo.setMood(Repo.MoodReq(date = dateStr, mood = i + 1, userId = saveOwner.takeIf { it != 0 }))
+                                                Repo.setMood(Repo.MoodReq(date = dateStr, mood = m))
                                             }.onSuccess {
                                                 vm.toast("记好啦")
                                                 saveDay = null
@@ -191,13 +215,32 @@ fun MoodScreen(vm: AppVm) {
                                             }.onFailure { vm.toast(it.message ?: "保存失败") }
                                         }
                                     }
-                                    .padding(6.dp),
-                                fontSize = 30.sp,
-                            )
+                                    .padding(6.dp)
+                            ) {
+                                cn.anlele.checkin.ui.components.MoodSticker(mood = m, round = true, size = 38.dp)
+                            }
                         }
                     }
                     Spacer(Modifier.height(6.dp))
-                    TinyAction("收起", "chevron-down") { saveDay = null }
+                    Row {
+                        TinyAction("收起", "chevron-down") { saveDay = null }
+                        // 删除这天的心情（自己的）
+                        val existing = byKey[dateStr to (owners.firstOrNull() ?: 0)]
+                        if (existing != null) {
+                            Spacer(Modifier.width(16.dp))
+                            TinyAction("删除这天的心情", "trash") {
+                                scope.launch {
+                                    runCatching {
+                                        Repo.deleteMood(dateStr)
+                                    }.onSuccess {
+                                        vm.toast("删掉了")
+                                        saveDay = null
+                                        load()
+                                    }.onFailure { vm.toast(it.message ?: "删除失败") }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -140,6 +140,8 @@ object Repo {
     suspend fun createMemo(req: MemoReq): IdDto = Api.post("/memos", enc(req, MemoReq.serializer()))
     suspend fun updateMemo(id: Int, req: MemoReq): IdDto = Api.put("/memos/$id", enc(req, MemoReq.serializer()))
     suspend fun togglePin(id: Int) { Api.exec("POST", "/memos/$id/pin") }
+    /** 完成/取消完成（2026-11-03 站主定） */
+    suspend fun toggleDone(id: Int) { Api.exec("POST", "/memos/$id/done") }
     suspend fun deleteMemo(id: Int) { Api.exec("DELETE", "/memos/$id") }
 
     // ---------- 打卡 ----------
@@ -151,10 +153,50 @@ object Repo {
     suspend fun undoCheckin(id: Int): HabitStatDto = Api.delete("/habits/$id/checkin")
 
     // ---------- 记账 ----------
-    suspend fun expenses(month: String): ExpensesPageDto = Api.get("/expenses?month=$month")
+    /** 记账：给 q 就跨月搜备注/分类，不给就按月取 */
+    suspend fun expenses(month: String, q: String = ""): ExpensesPageDto {
+        val base = "/expenses?month=$month"
+        if (q.isBlank()) return Api.get(base)
+        return Api.get(base + "&q=" + java.net.URLEncoder.encode(q, "UTF-8"))
+    }
     suspend fun createExpense(req: ExpenseReq): IdDto = Api.post("/expenses", enc(req, ExpenseReq.serializer()))
     suspend fun updateExpense(id: Int, req: ExpenseReq): IdDto = Api.put("/expenses/$id", enc(req, ExpenseReq.serializer()))
     suspend fun deleteExpense(id: Int) { Api.exec("DELETE", "/expenses/$id") }
+
+    // ---------- 记账条目（把几笔合成一个「条目」）----------
+    @Serializable data class ExpenseGroupReq(val name: String = "", val ids: List<Int> = emptyList())
+    @Serializable data class ExpenseGroupCreatedDto(val id: Int = 0, val name: String = "", val count: Int = 0)
+
+    /** 条目详情：**全量明细**（不限当月），管理弹层靠它列出并移出任意一笔 */
+    @Serializable data class ExpenseGroupDetailDto(
+        val id: Int = 0,
+        val name: String = "",
+        val count: Int = 0,
+        val totalIn: Double = 0.0,
+        val totalOut: Double = 0.0,
+        val items: List<ExpenseDto> = emptyList(),
+    )
+
+    suspend fun expenseGroupDetail(id: Int): ExpenseGroupDetailDto = Api.get("/expenses/groups/$id")
+
+    /** 合并：至少 2 笔，名字必填（服务端也会校验一遍） */
+    suspend fun createExpenseGroup(name: String, ids: List<Int>): ExpenseGroupCreatedDto =
+        Api.post("/expenses/groups", enc(ExpenseGroupReq(name, ids), ExpenseGroupReq.serializer()))
+
+    suspend fun renameExpenseGroup(id: Int, name: String): ExpenseGroupCreatedDto =
+        Api.put("/expenses/groups/$id", enc(ExpenseGroupReq(name), ExpenseGroupReq.serializer()))
+
+    /** 往已有条目里追加几笔（本期界面还没入口，接口先备着） */
+    suspend fun addToExpenseGroup(id: Int, ids: List<Int>): ExpenseGroupCreatedDto =
+        Api.post("/expenses/groups/$id/items", enc(ExpenseGroupReq(ids = ids), ExpenseGroupReq.serializer()))
+
+    /** 把几笔移出条目（明细保留，退回成普通一笔） */
+    suspend fun removeFromExpenseGroup(id: Int, ids: List<Int>): Unit =
+        Api.exec("POST", "/expenses/groups/$id/items/remove",
+            enc(ExpenseGroupReq(ids = ids), ExpenseGroupReq.serializer()))
+
+    /** 解散条目：明细全都留着，只是不再归在这个名字下 */
+    suspend fun dissolveExpenseGroup(id: Int) { Api.exec("DELETE", "/expenses/groups/$id") }
 
     /** 记账自定义分类：提交的是**全量列表**（服务端会去重 / 限长 / 限量后回存） */
     @Serializable data class ExpenseCategoriesReq(val categories: List<String> = emptyList())
@@ -210,6 +252,9 @@ object Repo {
     @Serializable data class MoodReq(val date: String? = null, val mood: Int, val note: String? = null, val userId: Int? = null)
     suspend fun moods(month: String): MoodListDto = Api.get("/couple/moods?month=$month")
     suspend fun setMood(req: MoodReq): IdDto = Api.put("/couple/mood", enc(req, MoodReq.serializer()))
+    suspend fun deleteMood(date: String, userId: Int? = null) {
+        Api.exec("DELETE", "/couple/mood?date=$date" + (userId?.let { "&userId=$it" } ?: ""))
+    }
     @Serializable data class PoopReq(val at: String? = null, val note: String? = null, val userId: Int? = null)
     suspend fun poops(month: String): PoopListDto = Api.get("/couple/poops?month=$month")
     suspend fun tapPoop(req: PoopReq = PoopReq()): IdDto = Api.post("/couple/poop", enc(req, PoopReq.serializer()))
@@ -321,16 +366,13 @@ object Repo {
         val forbidden: Boolean? = null,
         val moveTimeoutSec: Int? = null,
         val totalTimeoutSec: Int? = null,
-        val seats: List<GameSeatSpec>? = null,
         /** 军旗玩法：open=明棋 / dark=暗棋 / fanqi=翻棋（缺省 = dark 现状兼容） */
         val mode: String? = null,
     )
     @Serializable data class GameJoinReq(val code: String)
     @Serializable data class GameMoveReq(val x: Int, val y: Int)
     @Serializable data class GameFromToReq(val fx: Int, val fy: Int, val tx: Int, val ty: Int)
-    @Serializable data class GameLudoMoveReq(val p: Int)
     @Serializable data class GameScoreReq(val score: Int)
-    @Serializable data class GameSeatSpec(val isAi: Boolean = false)
 
     /** 单游戏杂项设置的响应：规则默认值 + 可选档位 */
     @Serializable
@@ -394,12 +436,11 @@ object Repo {
         moveTimeoutSec: Int? = null,
         totalTimeoutSec: Int? = null,
         gameKey: String = "gomoku",
-        seats: List<GameSeatSpec>? = null,
         mode: String? = null,
     ): GameCreateDto = Api.post(
         "/games/$gameKey/rooms",
         enc(
-            GameCreateReq(side, opponent, aiLevel, size, forbidden, moveTimeoutSec, totalTimeoutSec, seats, mode),
+            GameCreateReq(side, opponent, aiLevel, size, forbidden, moveTimeoutSec, totalTimeoutSec, mode),
             GameCreateReq.serializer(),
         ),
     )
@@ -420,14 +461,6 @@ object Repo {
     /** 象棋/斗兽棋/军旗：起点+终点两段式走子 */
     suspend fun gameMoveFromTo(id: Int, fx: Int, fy: Int, tx: Int, ty: Int, gameKey: String): GameRoomDto =
         Api.post("/games/$gameKey/rooms/$id/move", enc(GameFromToReq(fx, fy, tx, ty), GameFromToReq.serializer()))
-
-    /** 飞行棋掷骰子 */
-    suspend fun gameRoll(id: Int, gameKey: String = "ludo"): GameRoomDto =
-        Api.post("/games/$gameKey/rooms/$id/roll")
-
-    /** 飞行棋走子（选第 p 号飞机） */
-    suspend fun ludoMove(id: Int, p: Int, gameKey: String = "ludo"): GameRoomDto =
-        Api.post("/games/$gameKey/rooms/$id/move", enc(GameLudoMoveReq(p), GameLudoMoveReq.serializer()))
 
     // ---------------- 军旗明棋布阵 ----------------
     @Serializable data class GameDeployPieceReq(val x: Int = 0, val y: Int = 0, val rank: String = "")

@@ -75,6 +75,7 @@ data class MemoDto(
     val title: String = "",
     val content: String = "",
     val pinned: Boolean = false,
+    val done: Boolean = false,
     val createdAt: String = "",
     val updatedAt: String = "",
 )
@@ -364,6 +365,31 @@ data class ExpenseDto(
     val category: String = "其他",
     val occurDate: String = "",
     val note: String = "",
+    /** 所属条目（合并容器）的 id；null = 未分组的一笔。老服务端不返回 = 也是 null */
+    val groupId: Int? = null,
+    /** 所属条目名（未分组是空串）。列表里组内明细不显示它，只在搜索平铺时用得上 */
+    val groupName: String = "",
+)
+
+/**
+ * 记账条目（合并容器）—— 把几笔账收在一个名字下，例如「超市购物」挂 3 笔。
+ *
+ * 条目本身**没有分类、没有时间、没有金额**：totalOut/totalIn 是组内明细求和（派生值），
+ * occurDate 取组内最新一笔，只用于在列表里定位。服务端永远只按明细计金额，
+ * 所以条目只是展示层的分组，不会影响任何统计。
+ */
+@Serializable
+data class ExpenseGroupDto(
+    val id: Int = 0,
+    val name: String = "",
+    /** 本页（当月）里的笔数 */
+    val count: Int = 0,
+    /** 组内其它月份还挂着几笔（展开时可以提一句） */
+    val otherCount: Int = 0,
+    val totalIn: Double = 0.0,
+    val totalOut: Double = 0.0,
+    val occurDate: String = "",
+    val items: List<ExpenseDto> = emptyList(),
 )
 
 @Serializable
@@ -389,7 +415,12 @@ data class MonthRowDto(
 @Serializable
 data class ExpensesPageDto(
     val month: String = "",
+    /** 搜索关键字（空 = 按月取，非空 = 跨月搜索结果） */
+    val q: String = "",
+    val searching: Boolean = false,
     val items: List<ExpenseDto> = emptyList(),
+    /** 条目视图（当月视角）：每个条目带着它这个月的那几笔。老服务端不返回 = 空，界面自动退化成平铺 */
+    val groups: List<ExpenseGroupDto> = emptyList(),
     /** 记账分类（用户自定义；服务端没配过就是内置 7 个）。空 = 老版本服务端，App 走本地兜底 */
     val categories: List<String> = emptyList(),
     val summary: ExpenseSummaryDto = ExpenseSummaryDto(),
@@ -549,9 +580,16 @@ data class MoodItemDto(
 )
 
 @Serializable
+data class MoodMemberDto(
+    val userId: Int = 0,
+    val name: String = "",
+)
+
+@Serializable
 data class MoodListDto(
     val items: List<MoodItemDto> = emptyList(),
     val moods: List<String> = emptyList(),
+    val members: List<MoodMemberDto> = emptyList(),   // 固定顺序（自己在前）：日历行归属固定
 )
 
 @Serializable
@@ -566,6 +604,7 @@ data class PoopItemDto(
 @Serializable
 data class PoopListDto(
     val items: List<PoopItemDto> = emptyList(),
+    val members: List<MoodMemberDto> = emptyList(),   // 固定顺序（自己在前）：日历行归属固定
 )
 
 // ---- 情侣大类：互相提问（互问互答，分页/筛选控条数） ----
@@ -974,8 +1013,6 @@ data class GameRoomDto(
     val opponentOnline: Boolean = false,
     val myTurn: Boolean = false,
     val canJoin: Boolean = false,
-    /** 飞行棋多座：每座 side/color/name/isAi/isMe/active/usedMs/online */
-    val players: List<LudoPlayerDto>? = null,
     /** 重建换房握手（设置重建层改动 → 一键重建）：askSide 发起方 / vote 对方态度 / doneId 新房 */
     val rebuild: RebuildHandshakeDto? = null,
     /** per-game 状态（state.events / state.pieces / state.lastMove 等） */
@@ -992,19 +1029,6 @@ data class RebuildHandshakeDto(
     val doneId: Int = 0,
 )
 
-@Serializable
-data class LudoPlayerDto(
-    val seat: Int = 0,
-    val side: Int = 0,
-    val color: String = "",
-    val name: String = "",
-    val isAi: Boolean = false,
-    val isMe: Boolean = false,
-    val active: Boolean = true,
-    val usedMs: Long = 0,
-    val online: Boolean = false,
-)
-
 /** per-game 状态快照（由服务端 BuildState 返回） */
 @Serializable
 data class GameStateDto(
@@ -1016,12 +1040,8 @@ data class GameStateDto(
     val battleLog: List<GameBattleDto>? = null,
     val lastMove: GameLastMoveDto? = null,
     val inCheck: Boolean = false,
-    val lastRoll: Int? = null,
-    val needRoll: Boolean = false,
     /** 黑白棋：盘面大小（6/8/10/12；建房快照，缺省 8） */
     val size: Int? = null,
-    /** 飞行棋：本 roll 下可走的机号（服务端算好，双端高亮直接消费） */
-    val movable: List<Int> = emptyList(),
     /** 可走提示（Batch D）："x,y" → 合法落点 [[tx,ty],…]，只在我方回合下发 */
     val hints: Map<String, List<List<Int>>>? = null,
     /** 军旗：open=明棋 / dark=暗棋 / fanqi=翻棋 */

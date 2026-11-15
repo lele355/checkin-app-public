@@ -272,13 +272,16 @@ fun AppField(
 ) {
     val p = palette
     Column(modifier) {
-        if (label.isNotBlank()) {
-            Text(label, fontSize = 12.5.sp, color = p.textSub, modifier = Modifier.padding(bottom = 6.dp))
-        }
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth(),
+            // 浮动标签（2026-11-12 站主定）：label 交给输入框自己渲染 ——
+            // 空值时坐在框内当提示、聚焦或有值时上浮到边框上，省掉顶部那行静态标题。
+            // 不写 fontSize：交给 M3 的 labelMedium/labelSmall 缩放，上浮时才不会字号打架。
+            label = if (label.isNotBlank()) {
+                { Text(label, maxLines = 1) }
+            } else null,
             placeholder = placeholder?.let { { Text(it, color = p.textWeak, fontSize = 14.sp) } },
             singleLine = singleLine,
             minLines = minLines,
@@ -299,6 +302,9 @@ fun AppField(
                 cursorColor = p.accent,
                 focusedTextColor = p.text,
                 unfocusedTextColor = p.text,
+                focusedLabelColor = p.accent,
+                unfocusedLabelColor = p.textSub,
+                disabledLabelColor = p.textWeak,
             ),
         )
     }

@@ -29,6 +29,7 @@ fun PoopScreen(vm: AppVm) {
     val scope = rememberCoroutineScope()
     var items by remember { mutableStateOf<List<PoopItemDto>>(emptyList()) }
     var myUid by remember { mutableStateOf(0) }
+    var poMembers by remember { mutableStateOf<List<cn.anlele.checkin.data.MoodMemberDto>>(emptyList()) }
     var tapOwner by remember { mutableStateOf(0) }   // 0=自己
     var loading by remember { mutableStateOf(true) }
 
@@ -38,6 +39,7 @@ fun PoopScreen(vm: AppVm) {
             val month = java.time.LocalDate.now().toString().take(7)
             val d = Repo.poops(month)
             items = d.items
+            poMembers = d.members
         } catch (e: Exception) {
             vm.toast(e.message ?: "加载失败")
         } finally {
@@ -53,6 +55,83 @@ fun PoopScreen(vm: AppVm) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item { PageHeadCard(title = "排便记录", hint = "情侣互见 · 点一下记一次") }
+
+            // 日历视图（大格子+固定行归属：上=自己 / 下=对方，2026-11-02 站主定）
+            item {
+                AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(12.dp)) {
+                    Column {
+                        val today = java.time.LocalDate.now()
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Spacer(Modifier.weight(1f))
+                            Text(today.toString().take(7), fontSize = 15.sp, color = p.textSub, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.weight(1f))
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        // 行归属图例（固定，不搞混）
+                        val counts = items.groupBy { it.at.take(10) to it.userId }.mapValues { it.value.size }
+                        val owners = poMembers.map { it.userId }
+                        val ownerNames = poMembers.associate { it.userId to it.name }
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            for ((i, u) in owners.withIndex()) {
+                                Text(
+                                    "${if (i == 0) "上" else "下"}：${ownerNames[u] ?: "TA"}（当日次数）",
+                                    fontSize = 11.sp, color = p.textWeak,
+                                )
+                                Spacer(Modifier.width(16.dp))
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row {
+                            listOf("一", "二", "三", "四", "五", "六", "日").forEach {
+                                Text(it, Modifier.weight(1f), fontSize = 12.sp, color = p.textWeak, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        val ym = java.time.YearMonth.from(today)
+                        val daysIn = ym.lengthOfMonth()
+                        val offset = (java.time.LocalDate.of(ym.year, ym.month, 1).dayOfWeek.value % 7)
+                        val cells = (1..(offset + daysIn)).toList()
+                        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                            columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(7),
+                            modifier = Modifier.heightIn(max = 760.dp),
+                            userScrollEnabled = false,
+                        ) {
+                            items(cells.size) { i ->
+                                val idx = cells[i]
+                                if (idx <= offset) {
+                                    Spacer(Modifier.height(104.dp))
+                                } else {
+                                    val day = idx - offset
+                                    val dateStr = "${ym.year}-${ym.monthValue.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}"
+                                    Column(
+                                        Modifier.height(104.dp).fillMaxWidth(),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                    ) {
+                                        Text("$day", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = p.text)
+                                        Spacer(Modifier.height(4.dp))
+                                        // 固定两行：上=owners[0]，下=owners[1]
+                                        for (u in owners) {
+                                            val c = counts[dateStr to u] ?: 0
+                                            Box(
+                                                Modifier.height(34.dp).fillMaxWidth(),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Text(
+                                                    if (c > 0) "💩×$c" else "·",
+                                                    fontSize = if (c > 0) 15.sp else 16.sp,
+                                                    fontWeight = if (c > 0) FontWeight.SemiBold else FontWeight.Normal,
+                                                    color = if (c > 0) p.text else p.textWeak.copy(alpha = 0.3f),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // 打卡大按钮
             item {

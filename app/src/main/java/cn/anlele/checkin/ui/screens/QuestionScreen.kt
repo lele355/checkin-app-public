@@ -33,6 +33,8 @@ fun QuestionScreen(vm: AppVm) {
     var status by remember { mutableStateOf("all") }
     var page by remember { mutableStateOf(1) }
     var data by remember { mutableStateOf(cn.anlele.checkin.data.QuestionListDto()) }
+    // 点问题弹窗删除（2026-11-03 站主定：小纸条同款，二次确认）
+    var confirmDelete by remember { mutableStateOf<cn.anlele.checkin.data.QuestionItemDto?>(null) }
     var askText by remember { mutableStateOf("") }
     var answerText by remember { mutableStateOf("") }
     var answerId by remember { mutableStateOf(0) }
@@ -65,7 +67,10 @@ fun QuestionScreen(vm: AppVm) {
                         Text("问对方一个问题", fontSize = 13.sp, color = p.textSub, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            cn.anlele.checkin.ui.components.AppField("", askText, { askText = it }, placeholder = "想问 TA 什么…", singleLine = true)
+                            // 【修 2026-11-03】AppField 不包 weight 会把按钮挤出屏幕（站主报"缺提交按钮"）
+                            Box(Modifier.weight(1f)) {
+                                cn.anlele.checkin.ui.components.AppField("", askText, { askText = it }, placeholder = "想问 TA 什么…", singleLine = true)
+                            }
                             Spacer(Modifier.width(8.dp))
                             PrimaryButton("提问") {
                                 val t = askText.trim()
@@ -106,7 +111,12 @@ fun QuestionScreen(vm: AppVm) {
                 item { Text("还没有问题，问 TA 一个吧", fontSize = 12.5.sp, color = p.textWeak) }
             } else {
                 items(data.items) { q ->
-                    AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(14.dp)) {
+                    // 点条目弹窗删除（2026-11-03 站主定：小纸条同款，二次确认；权限服务端兜底）
+                    AppCard(
+                        Modifier.fillMaxWidth(),
+                        padding = PaddingValues(14.dp),
+                        onClick = { confirmDelete = q },
+                    ) {
                         Column {
                             Text("${q.from} → ${q.to} · ${q.askedAt}", fontSize = 10.5.sp, color = p.textWeak)
                             Spacer(Modifier.height(4.dp))
@@ -117,7 +127,9 @@ fun QuestionScreen(vm: AppVm) {
                                 Text(q.answeredAt ?: "", fontSize = 10.sp, color = p.textWeak)
                             } else if (q.mineToAnswer) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    cn.anlele.checkin.ui.components.AppField("", if (answerId == q.id) answerText else "", { answerId = q.id; answerText = it }, placeholder = "写下你的回答…", singleLine = true)
+                                    Box(Modifier.weight(1f)) {
+                                        cn.anlele.checkin.ui.components.AppField("", if (answerId == q.id) answerText else "", { answerId = q.id; answerText = it }, placeholder = "写下你的回答…", singleLine = true)
+                                    }
                                     Spacer(Modifier.width(8.dp))
                                     SecondaryButton("回答") {
                                         val t = answerText.trim()
@@ -159,5 +171,28 @@ fun QuestionScreen(vm: AppVm) {
                 }
             }
         }
+    }
+
+    // 删除确认弹窗（2026-11-03 站主定：小纸条同款，二次确认）
+    confirmDelete?.let { q ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("删除提问") },
+            text = { Text("确定删除这条提问吗？删除后不能恢复。") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    scope.launch {
+                        runCatching { Repo.deleteQuestion(q.id) }
+                            .onSuccess { vm.toast("删掉了") }
+                            .onFailure { vm.toast(it.message ?: "删除失败") }
+                        confirmDelete = null
+                        load()
+                    }
+                }) { Text("删除", color = androidx.compose.ui.graphics.Color(0xFFC62828)) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { confirmDelete = null }) { Text("取消") }
+            },
+        )
     }
 }

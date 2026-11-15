@@ -11,7 +11,7 @@ import androidx.compose.ui.platform.LocalContext
  * 棋子图标缓存（D-5 图标二阶段集成）。
  *
  * 资源为 icons-ready 流水线同源产物（网页 SVG → 本处 PNG @2x/@3x），安卓 res 扁平命名：
- * `<game>_<key>`（如 xiangqi_red_shuai / armychess_red_siling / ludo_airplane_red）。
+ * `<game>_<key>`（如 xiangqi_red_shuai / armychess_red_siling / jungle_red_lion）。
  * 0.1 双端同规：同一 key 同一形，网页 `wwwroot/pieces/` 与本处 PNG 同一素材源。
  */
 @Composable

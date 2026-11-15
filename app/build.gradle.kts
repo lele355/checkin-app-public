@@ -24,8 +24,8 @@ android {
         applicationId = "cn.anlele.checkin"
         minSdk = 24
         targetSdk = 36
-        versionCode = 51
-        versionName = "2.9.0"
+        versionCode = 71
+        versionName = "2.12.0"
         // 接口地址：正式包走线上；调试包走宿主机（模拟器用 10.0.2.2 访问 127.0.0.1）
         buildConfigField("String", "API_BASE", "\"https://example.com/api/v1\"")
     }
@@ -49,7 +49,7 @@ android {
         }
         debug {
             applicationIdSuffix = ".debug"   // 调试包与正式包可共存，避免测试把真实数据搞乱
-            buildConfigField("String", "API_BASE", "\"http://10.0.2.2:5199/api/v1\"")
+            buildConfigField("String", "API_BASE", "\"http://10.0.2.2:5188/api/v1\"")
         }
     }
 
