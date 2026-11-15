@@ -376,7 +376,16 @@ fun TimeField(
     var open by remember { mutableStateOf(false) }
     val minute = remember(value) {
         val m = Regex("""^(\d{1,2}):(\d{2})""").find(value)
-        if (m == null) 9 * 60 else m.groupValues[1].toInt() * 60 + m.groupValues[2].toInt()
+        if (m != null) {
+            m.groupValues[1].toInt() * 60 + m.groupValues[2].toInt()
+        } else {
+            // 空值兜底：从「此刻」开始挑。原来写死 9*60，点开就跳到 09:00，
+            // 而记账多半是当场记 —— 默认值应该是现在，不是早上九点。
+            val hm = Dates.nowHm()
+            hm.substringBefore(':').toIntOrNull()?.let { h ->
+                h * 60 + (hm.substringAfter(':').toIntOrNull() ?: 0)
+            } ?: (9 * 60)
+        }
     }
     PickerShell(
         label = label,
