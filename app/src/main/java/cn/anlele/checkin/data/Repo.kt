@@ -153,11 +153,24 @@ object Repo {
     suspend fun undoCheckin(id: Int): HabitStatDto = Api.delete("/habits/$id/checkin")
 
     // ---------- 记账 ----------
-    /** 记账：给 q 就跨月搜备注/分类，不给就按月取 */
-    suspend fun expenses(month: String, q: String = ""): ExpensesPageDto {
-        val base = "/expenses?month=$month"
-        if (q.isBlank()) return Api.get(base)
-        return Api.get(base + "&q=" + java.net.URLEncoder.encode(q, "UTF-8"))
+    /**
+     * 记账列表：
+     *  · 给 month（yyyy-MM）= 按月（默认，与以前一致）
+     *  · 给 from/to（yyyy-MM-dd，含首尾）= 自定义时间范围，优先于 month
+     *  · 给 q = 跨全部月份搜备注/分类/条目名（搜索不受范围限制）
+     */
+    suspend fun expenses(month: String = "", q: String = "", from: String = "", to: String = ""): ExpensesPageDto {
+        val params = mutableListOf<String>()
+        if (from.isNotBlank() && to.isNotBlank()) {
+            params += "from=$from"
+            params += "to=$to"
+        } else if (month.isNotBlank()) {
+            params += "month=$month"
+        }
+        if (q.isNotBlank()) {
+            params += "q=" + java.net.URLEncoder.encode(q, "UTF-8")
+        }
+        return Api.get("/expenses?" + params.joinToString("&"))
     }
     suspend fun createExpense(req: ExpenseReq): IdDto = Api.post("/expenses", enc(req, ExpenseReq.serializer()))
     suspend fun updateExpense(id: Int, req: ExpenseReq): IdDto = Api.put("/expenses/$id", enc(req, ExpenseReq.serializer()))
@@ -342,7 +355,20 @@ object Repo {
         Api.put("/notify/settings", Api.json.encodeToString(NotifySettingsReq.serializer(), req))
 
     // ---------- 导出 / 版本 ----------
-    suspend fun exportAll(): ExportDto = Api.get("/export/all", cache = false)
+    /**
+     * 导出 JSON（存文件/分享）。
+     *  · modules 为空 = 全部模块；给清单就只导勾选的（schedules/memos/habits/courses/
+     *    expenses/anniversaries/period/board）
+     *  · from/to 为空 = 不限时间；给了就按范围截（含首尾两天）
+     * 服务端保证：只要导了记账，条目定义（expenseGroups）就跟着一起走，不会被时间范围切掉。
+     */
+    suspend fun exportAll(modules: List<String> = emptyList(), from: String = "", to: String = ""): ExportDto {
+        val params = mutableListOf<String>()
+        if (modules.isNotEmpty()) params += "modules=" + modules.joinToString(",")
+        if (from.isNotBlank()) params += "from=$from"
+        if (to.isNotBlank()) params += "to=$to"
+        return Api.get("/export/all" + if (params.isEmpty()) "" else "?" + params.joinToString("&"), cache = false)
+    }
     @Serializable data class RegisterReq(
         val code: String,
         val username: String,

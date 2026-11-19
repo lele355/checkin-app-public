@@ -76,6 +76,28 @@ object Dates {
 
     fun monthTitle(ym: String): String = fmt("$ym-01", "yyyy年M月")
 
+    /** "2026-11" → ("2026-11-01", "2026-11-30")：月份的首尾两个日期（含尾） */
+    fun monthBounds(ym: String): Pair<String, String> {
+        val year = ym.take(4).toIntOrNull() ?: return today() to today()
+        val month = ym.substringAfter('-', "").take(2).toIntOrNull() ?: return today() to today()
+        val c = Calendar.getInstance().apply {
+            set(Calendar.YEAR, year)
+            set(Calendar.MONTH, month - 1)
+            set(Calendar.DAY_OF_MONTH, 1)
+        }
+        val first = fmt(c.time, "yyyy-MM-dd")
+        val last = String.format(Locale.CHINA, "%d-%02d-%02d", year, month, c.getActualMaximum(Calendar.DAY_OF_MONTH))
+        return first to last
+    }
+
+    /** 范围标题：同年只显示月日（11月1日 ~ 11月30日），跨年补上年份 */
+    fun rangeTitle(from: String, to: String): String {
+        if (from.isBlank() || to.isBlank()) return ""
+        val sameYear = from.take(4) == to.take(4)
+        val f = if (sameYear) fmt(from, "M月d日") else fmt(from, "yyyy年M月d日")
+        return "$f ~ ${fmt(to, "M月d日")}"
+    }
+
     /** 相对日期：今天 / 明天 / 昨天 / 10月24日 */
     fun relative(dateStr: String?): String {
         if (dateStr.isNullOrBlank()) return ""

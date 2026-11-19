@@ -112,6 +112,12 @@ fun ExpensesScreen(vm: AppVm) {
     var query by remember { mutableStateOf("") }
     var searchData by remember { mutableStateOf<ExpensesPageDto?>(null) }
 
+    // ---------- 自定义时间范围（默认空 = 按月，行为与以前完全一致） ----------
+    var rangeFrom by remember { mutableStateOf("") }
+    var rangeTo by remember { mutableStateOf("") }
+    var filterOpen by remember { mutableStateOf(false) }
+    val isRange = rangeFrom.isNotBlank() && rangeTo.isNotBlank()
+
     // ---------- 整理（多选合并）----------
     // 长按任意一笔进入：只有未分组的那几笔能勾，勾够 2 笔就能合并成一个条目。
     var picking by remember { mutableStateOf(false) }
@@ -129,7 +135,11 @@ fun ExpensesScreen(vm: AppVm) {
         try {
             val q = query.trim()
             if (q.isEmpty()) {
-                val r = Repo.expenses(ym)
+                // 有范围按范围取，没有按月取（默认不变）
+                val r = if (rangeFrom.isNotBlank() && rangeTo.isNotBlank())
+                    Repo.expenses(from = rangeFrom, to = rangeTo)
+                else
+                    Repo.expenses(ym)
                 data = r
                 searchData = null
                 if (r.categories.isNotEmpty()) categories = r.categories
@@ -143,9 +153,9 @@ fun ExpensesScreen(vm: AppVm) {
         }
     }
 
-    LaunchedEffect(ym, query) {
+    LaunchedEffect(ym, query, rangeFrom, rangeTo) {
         if (query.isNotBlank()) delay(280)   // 打字防抖，别每个字符打一次接口
-        // 换月/换搜索条件 = 换一批数据，选择与展开状态一起收掉
+        // 换月/换搜索条件/换范围 = 换一批数据，选择与展开状态一起收掉
         picking = false
         picked = emptySet()
         pickTarget = null
@@ -205,6 +215,16 @@ fun ExpensesScreen(vm: AppVm) {
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    } else if (isRange) {
+                        // 自定义范围模式：标题就是起止日期，翻月箭头让位（范围和月份是两套语义）
+                        Text(
+                            Dates.rangeTitle(rangeFrom, rangeTo),
+                            fontSize = 15.5.sp,
+                            color = p.text,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconBtn("chevron-left", "上个月", size = 32.dp) { ym = Dates.addMonths(ym, -1) }
@@ -236,6 +256,11 @@ fun ExpensesScreen(vm: AppVm) {
                         Spacer(Modifier.width(6.dp))
                         IconBtn("x", "取消") { picking = false; picked = emptySet(); pickTarget = null }
                     } else {
+                        // 范围筛选只对「列表」有意义（月度视图是近 12 个月汇总，不吃范围）
+                        if (view == "列表" && query.isBlank()) {
+                            IconBtn("calendar", "时间范围", size = 34.dp) { filterOpen = true }
+                            Spacer(Modifier.width(6.dp))
+                        }
                         IconBtn("search", "搜索", size = 34.dp) {
                             searchOpen = !searchOpen
                             if (!searchOpen) query = ""
@@ -467,6 +492,26 @@ fun ExpensesScreen(vm: AppVm) {
                         vm.toast("合并失败，稍后再试")
                     }
                 }
+            },
+        )
+    }
+
+    // ---------- 时间范围筛选（默认空 = 按月） ----------
+    if (filterOpen) {
+        RangeSheet(
+            from = rangeFrom,
+            to = rangeTo,
+            onClose = { filterOpen = false },
+            onApply = { f, t ->
+                rangeFrom = f
+                rangeTo = t
+                view = "列表"        // 范围只对流水有意义，定了范围就回到列表
+                filterOpen = false
+            },
+            onClear = {
+                rangeFrom = ""
+                rangeTo = ""
+                filterOpen = false
             },
         )
     }
@@ -709,6 +754,51 @@ private fun PickMark(on: Boolean) {
         contentAlignment = Alignment.Center,
     ) {
         if (on) Icon(AppIcons["check"], null, Modifier.size(11.dp), tint = p.onAccent)
+    }
+}
+
+/** 时间范围筛选：快捷范围 + 自定义起止（复用 DatePickerSheet），空着不生效 */
+@Composable
+private fun RangeSheet(
+    from: String,
+    to: String,
+    onClose: () -> Unit,
+    onApply: (String, String) -> Unit,
+    onClear: () -> Unit,
+) {
+    val p = palette
+    var f by remember { mutableStateOf(from) }
+    var t by remember { mutableStateOf(to) }
+
+    fun pick(ym: String) { val b = Dates.monthBounds(ym); f = b.first; t = b.second }
+
+    EditSheet(
+        title = "时间范围",
+        onClose = onClose,
+        saveText = "应用",
+        onSave = {
+            if (f.isNotBlank() && t.isNotBlank() && f <= t) onApply(f, t)
+        },
+    ) {
+        Text("快捷", fontSize = 12.sp, color = p.textWeak)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppChip("本月") { pick(Dates.thisMonth()) }
+            AppChip("上月") { pick(Dates.addMonths(Dates.thisMonth(), -1)) }
+            AppChip("近 7 天") { f = Dates.addDays(Dates.today(), -6); t = Dates.today() }
+            AppChip("近 30 天") { f = Dates.addDays(Dates.today(), -29); t = Dates.today() }
+        }
+        Spacer(Modifier.height(16.dp))
+        DateField("开始日期", f, { f = it }, clearable = true)
+        Spacer(Modifier.height(12.dp))
+        DateField("结束日期", t, { t = it }, clearable = true)
+        Spacer(Modifier.height(16.dp))
+        SecondaryButton("回到本月", Modifier.fillMaxWidth()) { onClear() }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "不选就是按月看；日期都是「含当天」。",
+            fontSize = 11.5.sp, color = p.textWeak, lineHeight = 17.sp,
+        )
     }
 }
 

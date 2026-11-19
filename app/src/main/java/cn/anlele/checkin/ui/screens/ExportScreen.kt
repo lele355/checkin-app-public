@@ -3,6 +3,8 @@ package cn.anlele.checkin.ui.screens
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +34,8 @@ import cn.anlele.checkin.AppVm
 import cn.anlele.checkin.data.Repo
 import cn.anlele.checkin.ui.components.PageHeadCard
 import cn.anlele.checkin.ui.components.AppCard
+import cn.anlele.checkin.ui.components.AppChip
+import cn.anlele.checkin.ui.components.DateField
 import cn.anlele.checkin.ui.components.LoadingBlock
 import cn.anlele.checkin.ui.components.PrimaryButton
 import cn.anlele.checkin.ui.components.SecondaryButton
@@ -43,7 +47,22 @@ import java.io.File
 /**
  * 导出 —— 把自己名下所有数据打包成一个 JSON，存到 App 的私有目录再调系统分享。
  * 发到微信/QQ/邮箱都由系统分享面板处理，App 自己不碰网络。
+ *
+ * 两种导法：全量备份（什么都导），自定义导出（勾模块 + 定时间范围）。
+ * 服务端保证：只要导了记账，条目（合并容器）的定义就跟着一起走，不会被时间范围切掉。
  */
+private val EXPORT_MODULES = listOf(
+    "schedules" to "日程",
+    "memos" to "备忘",
+    "habits" to "打卡",
+    "courses" to "课程",
+    "expenses" to "记账",
+    "anniversaries" to "纪念日",
+    "period" to "经期",
+    "board" to "留言",
+)
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ExportScreen(vm: AppVm) {
     val p = palette
@@ -51,6 +70,11 @@ fun ExportScreen(vm: AppVm) {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var lastFile by remember { mutableStateOf<String?>(null) }
+
+    // 自定义导出：模块默认全选（用户只取消不要的），时间默认不限
+    var selModules by remember { mutableStateOf(EXPORT_MODULES.map { it.first }.toSet()) }
+    var expFrom by remember { mutableStateOf("") }
+    var expTo by remember { mutableStateOf("") }
 
     fun share(file: File, mime: String) {
         val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
@@ -62,12 +86,12 @@ fun ExportScreen(vm: AppVm) {
         ctx.startActivity(Intent.createChooser(intent, "分享备份文件"))
     }
 
-    fun doExport() {
+    fun doExport(modules: List<String>, from: String, to: String) {
         if (busy) return
         busy = true
         scope.launch {
             try {
-                val d = Repo.exportAll()
+                val d = Repo.exportAll(modules, from, to)
                 val dir = File(ctx.getExternalFilesDir(null), "export").apply { mkdirs() }
                 val f = File(dir, d.filename.ifBlank { "日常管理-导出.json" })
                 f.writeText(d.content, Charsets.UTF_8)
@@ -106,7 +130,50 @@ fun ExportScreen(vm: AppVm) {
                 )
                 Spacer(Modifier.height(14.dp))
                 if (busy) LoadingBlock("正在打包…") else
-                    PrimaryButton("生成并分享", Modifier.fillMaxWidth(), icon = "download", onClick = { doExport() })
+                    PrimaryButton("生成并分享", Modifier.fillMaxWidth(), icon = "download",
+                        onClick = { doExport(emptyList(), "", "") })
+            }
+        }
+
+        // ---------- 自定义导出：勾模块 + 定时间范围 ----------
+        AppCard(Modifier.fillMaxWidth(), padding = androidx.compose.foundation.layout.PaddingValues(16.dp)) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(AppIcons["settings-2"], null, Modifier.size(18.dp), tint = p.accent)
+                    Spacer(Modifier.width(9.dp))
+                    Text("自定义导出", fontSize = 15.sp, color = p.text, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(12.dp))
+
+                Text("模块", fontSize = 12.sp, color = p.textWeak)
+                Spacer(Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    EXPORT_MODULES.forEach { (key, label) ->
+                        AppChip(label, selected = key in selModules) {
+                            selModules = if (key in selModules) selModules - key else selModules + key
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                Text("时间范围（留空 = 不限）", fontSize = 12.sp, color = p.textWeak)
+                Spacer(Modifier.height(8.dp))
+                DateField("开始日期", expFrom, { expFrom = it }, clearable = true)
+                Spacer(Modifier.height(12.dp))
+                DateField("结束日期", expTo, { expTo = it }, clearable = true)
+
+                Spacer(Modifier.height(16.dp))
+                if (busy) LoadingBlock("正在打包…") else
+                    PrimaryButton(
+                        "生成并分享",
+                        Modifier.fillMaxWidth(),
+                        icon = "download",
+                        enabled = selModules.isNotEmpty() && (expFrom.isBlank() || expTo.isBlank() || expFrom <= expTo),
+                        onClick = { doExport(selModules.sorted(), expFrom, expTo) },
+                    )
             }
         }
 
