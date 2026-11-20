@@ -1,9 +1,24 @@
 package cn.anlele.checkin.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,8 +49,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.anlele.checkin.AppVm
 import cn.anlele.checkin.data.ApiException
+import cn.anlele.checkin.data.CategorySumDto
 import cn.anlele.checkin.data.ExpenseDto
 import cn.anlele.checkin.data.ExpenseGroupDto
 import cn.anlele.checkin.data.ExpensesPageDto
@@ -74,6 +96,7 @@ import cn.anlele.checkin.ui.theme.palette
 import cn.anlele.checkin.util.Dates
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.atan2
 
 /**
  * 服务端不返回分类时的兜底（老版本后端 / 离线快照）。
@@ -129,6 +152,17 @@ fun ExpensesScreen(vm: AppVm) {
     var pickTarget by remember { mutableStateOf<ExpenseGroupDto?>(null) }
     /** 已展开的条目 id。切月 / 搜索 / 刷新后清空，避免出现「凭空打开的组」 */
     var openGroups by remember { mutableStateOf(setOf<Int>()) }
+
+    // ---------- 分类点选筛选：点支出分类里的分类 → 整页只看这一类，一键恢复 ----------
+    // 筛选跟着「分类名」走而不是下标：换月之后这个分类可能没支出，那也是「该分类本月为 0」的合理展示。
+    var catFilter by remember { mutableStateOf<String?>(null) }
+
+    // ---------- 支出分类模块的展示偏好（条形/饼图、折叠），存本地、跨启动记忆 ----------
+    // 和 Dashboard 的 notify_prefs 同一档语义：这是「这台手机怎么看」，不是账号数据。
+    val appCtx = LocalContext.current
+    val uiPrefs = remember(appCtx) { appCtx.getSharedPreferences("expense_ui", android.content.Context.MODE_PRIVATE) }
+    var catPie by remember { mutableStateOf(uiPrefs.getBoolean("cat_pie", false)) }
+    var catCollapsed by remember { mutableStateOf(uiPrefs.getBoolean("cat_collapsed", false)) }
 
     suspend fun load() {
         loading = true
@@ -201,8 +235,11 @@ fun ExpensesScreen(vm: AppVm) {
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 26.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // ---------- 页头：月份 + 视图 + 记一笔 ----------
+        // ---------- 页头：行1 月份/标题 + 记一笔；行2 视图切换 + 日历/搜索 ----------
+        // 以前四个操作全挤在行1、行2 只有一个切换条留白过大；现在两行各自「内容+操作」配平。
+        // 搜索行和页头同一个 item：收起时零高度，不会在 LazyColumn 的 spacedBy 里留空隙。
         item {
+            Column {
             PageHeadCard(
                 title = "",
                 titleSlot = {
@@ -241,41 +278,56 @@ fun ExpensesScreen(vm: AppVm) {
                     }
                 },
                 subRow = {
-                    if (query.isBlank()) {
-                        ViewSwitch(
-                            options = listOf("list" to "列表", "month" to "月度"),
-                            selected = view,
-                            onSelect = { view = it },
-                        )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        if (query.isBlank()) {
+                            ViewSwitch(
+                                options = listOf("list" to "列表", "month" to "月度"),
+                                selected = view,
+                                onSelect = {
+                                    view = it
+                                    // 月度视图不吃分类筛选（那是流水维度的过滤）
+                                    if (it != "列表") catFilter = null
+                                },
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        if (!picking) {
+                            // 范围筛选只对「列表」有意义（月度视图是近 12 个月汇总，不吃范围）
+                            if (view == "列表" && query.isBlank()) {
+                                IconBtn("calendar", "时间范围", size = 34.dp) { filterOpen = true }
+                                Spacer(Modifier.width(4.dp))
+                            }
+                            // 搜索框开着时按钮变「×」：图标跟着状态换，还带一点旋转过渡
+                            SearchToggleBtn(open = searchOpen || query.isNotBlank()) {
+                                searchOpen = !(searchOpen || query.isNotBlank())
+                                if (!searchOpen) query = ""
+                            }
+                        }
                     }
                 },
                 actions = {
                     if (picking) {
-                        // 整理态：页头只留「合并/加入 + 取消」，搜索和记一笔暂时让位，避免误触
+                        // 整理态：页头只留「合并/加入 + 取消」，记一笔暂时让位，避免误触
                         HeadButton(if (pickTarget != null) "加入" else "合并", icon = "check") { submitPick() }
                         Spacer(Modifier.width(6.dp))
                         IconBtn("x", "取消") { picking = false; picked = emptySet(); pickTarget = null }
                     } else {
-                        // 范围筛选只对「列表」有意义（月度视图是近 12 个月汇总，不吃范围）
-                        if (view == "列表" && query.isBlank()) {
-                            IconBtn("calendar", "时间范围", size = 34.dp) { filterOpen = true }
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        IconBtn("search", "搜索", size = 34.dp) {
-                            searchOpen = !searchOpen
-                            if (!searchOpen) query = ""
-                        }
-                        Spacer(Modifier.width(6.dp))
                         HeadButton("记一笔") { editing = null; editorOpen = true }
                     }
                 },
             )
-        }
 
-        // ---------- 搜索行 ----------
-        if (searchOpen || query.isNotBlank()) {
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // ---------- 搜索行：弹出/收起都有展开收起动画 ----------
+            AnimatedVisibility(
+                visible = searchOpen || query.isNotBlank(),
+                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(240)),
+                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(180)),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Box(Modifier.weight(1f)) {
                         AppField(
                             label = "",
@@ -288,6 +340,7 @@ fun ExpensesScreen(vm: AppVm) {
                     if (query.isNotBlank()) SecondaryButton("清除") { query = "" }
                 }
             }
+            }
         }
 
         val d = if (query.isNotBlank()) searchData else data
@@ -297,43 +350,53 @@ fun ExpensesScreen(vm: AppVm) {
         }
 
         if (view == "列表" || query.isNotBlank()) {
-            // ---------- 三栏汇总 ----------
+            // 分类点选筛选是纯前端过滤：数据不动，只决定这一页放哪些行、算哪些数
+            val scopedItems = if (catFilter == null) d.items else d.items.filter { it.category == catFilter }
+
+            // ---------- 三栏汇总（跟着分类筛选走） ----------
             item {
                 StaggerIn(0) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SumTile("支出", d.summary.totalOut, OUT_RED, Modifier.weight(1f))
-                        SumTile("收入", d.summary.totalIn, IN_GREEN, Modifier.weight(1f))
-                        SumTile("结余", d.summary.totalIn - d.summary.totalOut, p.text, Modifier.weight(1f), prefix = "")
+                    // 数字随筛选交叉淡入淡出；scope 从参数拿，退出中的旧画面才不会跟着变
+                    Crossfade(targetState = catFilter, animationSpec = tween(260), label = "sum-scope") { scope ->
+                        val items = if (scope == null) d.items else d.items.filter { it.category == scope }
+                        val out = items.filter { it.type == "out" }.sumOf { it.amount }
+                        val inc = items.filter { it.type == "in" }.sumOf { it.amount }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SumTile("支出", out, OUT_RED, Modifier.weight(1f))
+                            SumTile("收入", inc, IN_GREEN, Modifier.weight(1f))
+                            SumTile("结余", inc - out, p.text, Modifier.weight(1f), prefix = "")
+                        }
                     }
                 }
             }
 
-            // ---------- 分类条 ----------
+            // ---------- 分类模块：点分类只看这一类 / 条形↔饼图 / 可折叠 ----------
             val cats = d.summary.byCategory
-            if (cats.isNotEmpty()) {
+            if (cats.isNotEmpty() || catFilter != null) {
                 item {
                     StaggerIn(1) {
-                        AppCard(Modifier.fillMaxWidth(), PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
-                            Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                                Text("支出分类", fontSize = 13.5.sp, color = p.text, fontWeight = FontWeight.SemiBold)
-                                val total = cats.sumOf { it.amount }.coerceAtLeast(0.01)
-                                cats.forEach { c ->
-                                    val pct = (c.amount / total * 100).toInt()
-                                    Column {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(c.name, fontSize = 12.5.sp, color = p.text, modifier = Modifier.weight(1f))
-                                            Text(
-                                                "¥${Dates.money(c.amount)}　$pct%",
-                                                fontSize = 11.5.sp,
-                                                color = p.textSub,
-                                            )
-                                        }
-                                        Spacer(Modifier.height(5.dp))
-                                        GrowBar((c.amount / total).toFloat())
-                                    }
-                                }
-                            }
-                        }
+                        CategoryModule(
+                            cats = cats,
+                            filter = catFilter,
+                            pie = catPie,
+                            collapsed = catCollapsed,
+                            onFilter = { target ->
+                                catFilter = target
+                                // 换筛选范围 = 换一批行，多选与展开一起收掉
+                                picking = false
+                                picked = emptySet()
+                                pickTarget = null
+                                openGroups = emptySet()
+                            },
+                            onPie = {
+                                catPie = it
+                                uiPrefs.edit().putBoolean("cat_pie", it).apply()
+                            },
+                            onCollapsed = {
+                                catCollapsed = it
+                                uiPrefs.edit().putBoolean("cat_collapsed", it).apply()
+                            },
+                        )
                     }
                 }
             }
@@ -344,16 +407,36 @@ fun ExpensesScreen(vm: AppVm) {
                     AppCard(Modifier.fillMaxWidth(), PaddingValues(0.dp)) {
                         Column {
                             GroupHead(
-                                if (query.isNotBlank()) "搜到 ${d.summary.count} 笔"
-                                else "${Dates.fmt("$ym-01", "M月")}流水 · 共 ${d.summary.count} 笔"
-                            )
-                            if (d.items.isEmpty()) {
-                                SiteEmpty("💰", if (query.isNotBlank()) "没有匹配的账" else "这个月还没有账") {
-                                    PrimaryButton("记一笔", icon = "plus") { editing = null; editorOpen = true }
+                                when {
+                                    catFilter != null -> "$catFilter · 共 ${scopedItems.size} 笔"
+                                    query.isNotBlank() -> "搜到 ${d.summary.count} 笔"
+                                    else -> "${Dates.fmt("$ym-01", "M月")}流水 · 共 ${d.summary.count} 笔"
                                 }
-                            } else {
+                            )
+                            // 换筛选条件时整片交叉淡入淡出，比一行行跳走舒服（scope 走参数，旧画面不跟着变）
+                            Crossfade(targetState = catFilter to query, animationSpec = tween(260), label = "flow-scope") { (scope, q) ->
+                                val lines = buildExpenseLines(d, openGroups, scope)
+                                if (lines.isEmpty()) {
+                                    SiteEmpty(
+                                        "💰",
+                                        when {
+                                            scope != null -> "「$scope」本月没有账目"
+                                            q.isNotBlank() -> "没有匹配的账"
+                                            else -> "这个月还没有账"
+                                        },
+                                    ) {
+                                        if (scope != null) {
+                                            SecondaryButton("查看全部", icon = "rotate-ccw") { catFilter = null }
+                                        } else {
+                                            PrimaryButton("记一笔", icon = "plus") { editing = null; editorOpen = true }
+                                        }
+                                    }
+                                } else {
+                                // Crossfade 的内容槽是 Box 直接叠放 —— 多行必须包 Column，
+        // 否则所有流水行叠在同一个点上（2026-11-21 事故）
+                                Column {
                                 // 条目（合并容器）在列表里就是一个「组行」，展开才看到里面那几笔
-                                buildExpenseLines(d, openGroups).forEachIndexed { i, line ->
+                                lines.forEachIndexed { i, line ->
                                     when (line) {
                                         is ExpenseLine.Single -> ExpenseSingleRow(
                                             e = line.e,
@@ -385,6 +468,8 @@ fun ExpensesScreen(vm: AppVm) {
                                             showTopBorder = true,
                                         ) { editing = line.e; editorOpen = true }
                                     }
+                                }
+                                }
                                 }
                             }
                         }
@@ -420,11 +505,15 @@ fun ExpensesScreen(vm: AppVm) {
         item { Spacer(Modifier.height(4.dp)) }
     }
 
-        // ---------- 整理条：勾够 2 笔才亮「合并」 ----------
-        if (picking) {
+        // ---------- 整理条：勾够 2 笔才亮「合并」，进出带滑入/滑出过渡 ----------
+        AnimatedVisibility(
+            visible = picking,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(tween(220)),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(tween(160)),
+        ) {
             Row(
                 Modifier
-                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 10.dp)
                     .clip(RoundedCornerShape(16.dp))
@@ -549,19 +638,34 @@ private sealed interface ExpenseLine {
  * 排序统一按「该行最新的发生时间」—— 条目没有自己的时间，用组内最新那笔顶上，
  * 于是它在列表里的位置和里面最新一笔一致，不会凭空跳到别的日期去。
  * 搜索态服务端不给 groups，这里自然退化成平平的一列明细。
+ *
+ * [catFilter] 非空时只留该分类的账：条目整组过滤（组内剩 0 笔就整组不出现，
+ * 剩下的笔仍然收在组行里，不动用户原来的合并结构）。
  */
-private fun buildExpenseLines(d: ExpensesPageDto, open: Set<Int>): List<ExpenseLine> {
-    if (d.groups.isEmpty()) return d.items.map { ExpenseLine.Single(it) }
+private fun buildExpenseLines(d: ExpensesPageDto, open: Set<Int>, catFilter: String? = null): List<ExpenseLine> {
+    val filteredItems = if (catFilter == null) d.items else d.items.filter { it.category == catFilter }
+    val filteredGroups = if (catFilter == null) d.groups else d.groups.mapNotNull { g ->
+        val kept = g.items.filter { it.category == catFilter }
+        if (kept.isEmpty()) null else g.copy(
+            items = kept,
+            count = kept.size,
+            // 合计按留下的笔重算，别把筛掉的金额也算进来
+            totalIn = kept.filter { it.type == "in" }.sumOf { it.amount },
+            totalOut = kept.filter { it.type == "out" }.sumOf { it.amount },
+        )
+    }
 
-    val groups = d.groups.associateBy { it.id }
-    val keyed = ArrayList<Pair<String, ExpenseLine>>(d.items.size + d.groups.size)
-    d.items.forEach { e ->
+    if (filteredGroups.isEmpty()) return filteredItems.map { ExpenseLine.Single(it) }
+
+    val groups = filteredGroups.associateBy { it.id }
+    val keyed = ArrayList<Pair<String, ExpenseLine>>(filteredItems.size + filteredGroups.size)
+    filteredItems.forEach { e ->
         // 组内明细已经在 groups[].items 里，这里只留「未分组」和「组已不存在」的孤儿
         if (e.groupId == null || !groups.containsKey(e.groupId)) {
             keyed += sortKey(e.occurDate, e.id) to ExpenseLine.Single(e)
         }
     }
-    d.groups.forEach { g -> keyed += sortKey(g.occurDate, g.id) to ExpenseLine.Group(g) }
+    filteredGroups.forEach { g -> keyed += sortKey(g.occurDate, g.id) to ExpenseLine.Group(g) }
 
     return keyed.sortedByDescending { it.first }.flatMap { (_, line) ->
         if (line is ExpenseLine.Group && open.contains(line.g.id)) {
@@ -593,9 +697,16 @@ private fun ExpenseSingleRow(
         onLongClick = if (picking) null else onLongPress,
         meta = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (picking) {
-                    PickMark(selected)
-                    Spacer(Modifier.width(6.dp))
+                // 进/出整理态时勾选圈展开收起（从左缘生长），行内容跟着挪，不硬闪
+                AnimatedVisibility(
+                    visible = picking,
+                    enter = expandHorizontally(tween(220), expandFrom = Alignment.Start) + fadeIn(tween(220)),
+                    exit = shrinkHorizontally(tween(180), shrinkTowards = Alignment.Start) + fadeOut(tween(140)),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        PickMark(selected)
+                        Spacer(Modifier.width(6.dp))
+                    }
                 }
                 Box(
                     Modifier.size(40.dp).background(p.cardSoft, chipShape()),
@@ -645,6 +756,8 @@ private fun ExpenseGroupRow(
 ) {
     val p = palette
     val rotate by animateFloatAsState(if (open) 180f else 0f, label = "group-caret")
+    // 整理态置灰透明度过渡，进出整理态不硬切
+    val dimA by animateFloatAsState(if (dim) .4f else 1f, tween(220), label = "group-dim")
     SiteRow(
         showTopBorder = showTopBorder,
         // 整理态下条目不能被选中（它已经是一组账了），置灰且不响应
@@ -652,7 +765,7 @@ private fun ExpenseGroupRow(
         onLongClick = if (dim) null else onManage,
         meta = {
             Box(
-                Modifier.size(40.dp).background(p.accentSoft, chipShape()).alpha(if (dim) .4f else 1f),
+                Modifier.size(40.dp).background(p.accentSoft, chipShape()).alpha(dimA),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(AppIcons["list"], null, Modifier.size(18.dp), tint = p.accentStrong)
@@ -683,8 +796,9 @@ private fun ExpenseGroupRow(
             }
         },
     ) {
+        val nameColor by animateColorAsState(if (dim) p.textWeak else p.text, tween(220), label = "group-name")
         Text(
-            g.name, fontSize = 14.sp, color = if (dim) p.textWeak else p.text,
+            g.name, fontSize = 14.sp, color = nameColor,
             fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
         val extra = if (g.otherCount > 0) " · 其它月份 ${g.otherCount} 笔" else ""
@@ -745,15 +859,309 @@ private fun ExpenseChildRow(e: ExpenseDto, showTopBorder: Boolean, onOpen: () ->
 @Composable
 private fun PickMark(on: Boolean) {
     val p = palette
+    val scale by animateFloatAsState(if (on) 1f else 0.86f, label = "pick-scale")
     Box(
         Modifier
             .size(18.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(CircleShape)
             .background(if (on) p.accent else Color.Transparent)
             .border(1.5.dp, if (on) p.accent else p.borderStrong, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         if (on) Icon(AppIcons["check"], null, Modifier.size(11.dp), tint = p.onAccent)
+    }
+}
+
+// ==================== 页头小件 / 分类模块 ====================
+
+/**
+ * 搜索开关：关着是放大镜，开着变「×」——图标跟着状态换（这是本次要修的「前后不变」），
+ * 顺带一点旋转过渡，让「弹出/收起」动作在按钮上就有呼应。
+ */
+@Composable
+private fun SearchToggleBtn(open: Boolean, onClick: () -> Unit) {
+    val p = palette
+    val rot by animateFloatAsState(if (open) 90f else 0f, label = "search-rot")
+    Box(
+        Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            AppIcons[if (open) "x" else "search"],
+            if (open) "关闭搜索" else "搜索",
+            Modifier.size(34.dp * 0.52f).graphicsLayer { rotationZ = rot },
+            tint = p.text,
+        )
+    }
+}
+
+/**
+ * 支出分类模块：点分类 = 整页只看这一类（一键恢复）、条形/饼图切换、折叠记忆。
+ * 点选和折叠都带展开/收起动画；饼图的扇区也按分类顺序渐次转出来。
+ */
+@Composable
+private fun CategoryModule(
+    cats: List<CategorySumDto>,
+    filter: String?,
+    pie: Boolean,
+    collapsed: Boolean,
+    onFilter: (String?) -> Unit,
+    onPie: (Boolean) -> Unit,
+    onCollapsed: (Boolean) -> Unit,
+) {
+    val p = palette
+    val total = cats.sumOf { it.amount }.coerceAtLeast(0.01)
+    val shown = if (filter == null) cats else cats.filter { it.name == filter }
+
+    AppCard(Modifier.fillMaxWidth(), PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
+        Column {
+            // 头行：标题 +（筛选态的恢复按钮）+ 条形/饼图 + 折叠箭头
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (filter == null) "支出分类" else "支出分类 · $filter",
+                    fontSize = 13.5.sp, color = p.text, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                if (filter != null) {
+                    // 一键恢复：回到全部分类
+                    TinyAction("查看全部", "rotate-ccw") { onFilter(null) }
+                    Spacer(Modifier.width(2.dp))
+                }
+                // 条形 / 饼图 切换
+                Row(
+                    Modifier
+                        .clip(chipShape())
+                        .background(p.cardSoft)
+                        .border(1.dp, p.borderStrong.copy(alpha = .3f), chipShape())
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    listOf(false to "chart", true to "pie-chart").forEach { (isPie, icon) ->
+                        val on = pie == isPie
+                        Box(
+                            Modifier
+                                .size(22.dp)
+                                .clip(RoundedCornerShape(maxOf(p.radiusChip - 6.dp, 2.dp)))
+                                .background(if (on) p.accent else Color.Transparent)
+                                .clickable { onPie(isPie) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                AppIcons[icon], if (isPie) "饼状视图" else "条形视图",
+                                Modifier.size(12.dp), tint = if (on) p.onAccent else p.textSub,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.width(4.dp))
+                val caret by animateFloatAsState(if (collapsed) -90f else 0f, label = "fold-caret")
+                Box(
+                    Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .clickable { onCollapsed(!collapsed) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        AppIcons["chevron-down"], if (collapsed) "展开" else "收起",
+                        Modifier.size(15.dp).graphicsLayer { rotationZ = caret }, tint = p.textWeak,
+                    )
+                }
+            }
+
+            // 折叠区：展开/收起带动画，状态存本地 prefs（重启还在）
+            AnimatedVisibility(
+                visible = !collapsed,
+                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(240)),
+                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(180)),
+            ) {
+                Column(Modifier.padding(top = 11.dp)) {
+                    if (cats.isEmpty()) {
+                        Text("本月还没有支出分布", fontSize = 12.sp, color = p.textWeak)
+                    } else if (filter != null && shown.isEmpty()) {
+                        // 筛的分类本月没支出（换月后常见）：给提示但保留恢复入口
+                        Text("「$filter」本月没有支出", fontSize = 12.sp, color = p.textWeak)
+                    } else {
+                        // 筛选/切视图时内容整片交叉过渡（子集从参数 f 算，退出中的旧帧才保持原样）
+                        Crossfade(targetState = filter to pie, animationSpec = tween(240), label = "cat-body") { (f, isPie) ->
+                            val part = if (f == null) cats else cats.filter { it.name == f }
+                            if (isPie) {
+                                CategoryPie(
+                                    cats = part, total = total, highlight = f,
+                                    onPick = { name -> onFilter(if (f == name) null else name) },
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                                    part.forEach { c ->
+                                        // 点分类 = 只看这一类；再点一下 = 恢复全部（和「查看全部」双保险）
+                                        val pct = (c.amount / total * 100).toInt()
+                                        Column(
+                                            Modifier
+                                                .clip(chipShape())
+                                                .clickable { onFilter(if (f == c.name) null else c.name) }
+                                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(c.name, fontSize = 12.5.sp, color = p.text, modifier = Modifier.weight(1f))
+                                                Text(
+                                                    "¥${Dates.money(c.amount)}　$pct%",
+                                                    fontSize = 11.5.sp,
+                                                    color = p.textSub,
+                                                )
+                                            }
+                                            Spacer(Modifier.height(5.dp))
+                                            GrowBar((c.amount / total).toFloat(), animate = f == null)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 分类饼图（环形）：扇区按金额占比画，点扇区 = 筛选该分类。
+ * 扇区颜色从主题强调色的色相按黄金角散开 —— 5 套主题（含暗色 macOS）都能分得清；
+ * 进场时从 12 点方向渐次转出来。
+ */
+@Composable
+private fun CategoryPie(
+    cats: List<CategorySumDto>,
+    total: Double,
+    highlight: String?,
+    onPick: (String) -> Unit,
+) {
+    val p = palette
+    // 扇区配色：锚定主题强调色色相，黄金角偏转，暗色主题提亮
+    val colors = remember(cats.size, p.accent, p.isDark) {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(p.accent.toArgb(), hsv)
+        val baseHue = hsv[0]
+        val sat = if (p.isDark) 0.55f else 0.52f
+        val value = if (p.isDark) 0.92f else 0.72f
+        cats.indices.map { i ->
+            Color.hsv((baseHue + i * 137.508f) % 360f, sat, value)
+        }
+    }
+    var run by remember(cats.size) { mutableStateOf(false) }
+    LaunchedEffect(cats.size) { run = true }
+    val sweep by animateFloatAsState(if (run) 1f else 0f, tween(650, easing = CubicBezierEasing(.22f, .61f, .36f, 1f)), label = "pie-sweep")
+
+    Column {
+        Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+            Box(contentAlignment = Alignment.Center) {
+                Canvas(
+                    Modifier
+                        .size(158.dp)
+                        .pointerInput(cats) {
+                            detectTapGestures { pos ->
+                                // 点扇区筛选：换算成从 12 点方向顺时针的角度，落在哪块就点哪块
+                                val dx = pos.x - size.width / 2f
+                                val dy = pos.y - size.height / 2f
+                                var deg = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat() + 90f
+                                if (deg < 0f) deg += 360f
+                                var acc = 0f
+                                for ((i, c) in cats.withIndex()) {
+                                    acc += (c.amount / total * 360f).toFloat()
+                                    if (deg <= acc) { onPick(c.name); break }
+                                }
+                            }
+                        },
+                ) {
+                    val ring = 26.dp.toPx()
+                    val side = size.minDimension - ring
+                    val topLeft = Offset((size.width - side) / 2f, (size.height - side) / 2f)
+                    val arcSize = Size(side, side)
+                    // 底环：让筛选态（只剩一块）也看得到「圈」的轮廓
+                    drawArc(
+                        p.cardSoft, 0f, 360f, useCenter = false,
+                        style = Stroke(ring), topLeft = topLeft, size = arcSize,
+                    )
+                    var start = -90f   // 从 12 点方向开始
+                    cats.forEachIndexed { i, c ->
+                        val full = (c.amount / total * 360f).toFloat()
+                        drawArc(
+                            color = colors[i].copy(
+                                alpha = if (highlight == null || highlight == c.name) 1f else .22f
+                            ),
+                            startAngle = start,
+                            sweepAngle = full * sweep,
+                            useCenter = false,
+                            style = Stroke(ring),
+                            topLeft = topLeft,
+                            size = arcSize,
+                        )
+                        start += full
+                    }
+                }
+                // 圈心：选中分类的金额占比；没选就显示总支出
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    val one = highlight?.let { h -> cats.firstOrNull { it.name == h } }
+                    if (one != null) {
+                        Text(
+                            "${(one.amount / total * 100).toInt()}%",
+                            fontSize = 19.sp, color = p.text, fontWeight = FontWeight.SemiBold,
+                        )
+                        Text("¥${Dates.money(one.amount)}", fontSize = 10.5.sp, color = p.textWeak)
+                    } else {
+                        Text("总支出", fontSize = 10.5.sp, color = p.textWeak)
+                        Text(
+                            "¥${Dates.money(total)}",
+                            fontSize = 15.sp, color = p.text, fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+        }
+        // 图例（也是筛选入口）：两列网格，比一行一个省一半高度
+        // 按下标分块取色，不用 indexOf（分类重名时会指错扇区）
+        cats.withIndex().chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth()) {
+                pair.forEachIndexed { j, (i, c) ->
+                    val pct = (c.amount / total * 100).toInt()
+                    Row(
+                        Modifier
+                            .weight(1f)
+                            .clip(chipShape())
+                            .clickable { onPick(c.name) }
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(colors[i])
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            c.name, fontSize = 11.5.sp,
+                            color = if (highlight == c.name) p.text else p.textSub,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "¥${Dates.money(c.amount)} $pct%",
+                            fontSize = 10.5.sp,
+                            color = if (highlight == c.name) p.text else p.textWeak,
+                            maxLines = 1,
+                        )
+                    }
+                    if (j == 0) Spacer(Modifier.width(6.dp))
+                }
+                // 奇数个分类时补占位，末行不歪
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
     }
 }
 
