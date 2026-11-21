@@ -69,6 +69,7 @@ fun CalculatorScreen(vm: AppVm) {
                         options = listOf("simple" to "简单", "science" to "科学", "matrix" to "矩阵"),
                         selected = mode,
                         onSelect = { mode = it },
+                        fullWidth = true,
                     )
                 },
             )

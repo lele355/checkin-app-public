@@ -66,6 +66,7 @@ fun SettingsScreen(
     vm: AppVm,
     themeLabel: String,
     onPrefs: () -> Unit,
+    onCustomNav: () -> Unit,
     onNotify: () -> Unit,
     onExport: () -> Unit,
     onAccounts: () -> Unit,
@@ -98,6 +99,7 @@ fun SettingsScreen(
                 Column {
                     GroupHead("外观")
                     SetRow("palette", "外观与偏好", trailing = themeLabel) { onPrefs() }
+                    SetRow("panel-left", "自定义侧栏", trailing = "显隐 / 排序") { onCustomNav() }
                 }
             }
         }

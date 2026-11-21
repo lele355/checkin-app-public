@@ -74,6 +74,7 @@ import cn.anlele.checkin.ui.screens.ExpensesScreen
 import cn.anlele.checkin.ui.screens.ExportScreen
 import cn.anlele.checkin.ui.screens.GamesScreen
 import cn.anlele.checkin.ui.screens.HabitsScreen
+import cn.anlele.checkin.ui.screens.HealthScreen
 import cn.anlele.checkin.ui.screens.LoveNotesScreen
 import cn.anlele.checkin.ui.screens.MoodScreen
 import cn.anlele.checkin.ui.screens.PoopScreen
@@ -133,6 +134,7 @@ fun MainShell(vm: AppVm, me: MeDto) {
     var showPrefs by remember { mutableStateOf(false) }
     var showAccounts by remember { mutableStateOf(false) }
     var showUpdate by remember { mutableStateOf(false) }
+    var showNavCustom by remember { mutableStateOf(false) }
 
     // 模块内返回回调（修复 2）：游戏模块注册后，系统返回/顶栏返回逐级降层。
     // 默认 null = 旧行为（直接弹路由栈），其它模块零影响。
@@ -235,9 +237,11 @@ fun MainShell(vm: AppVm, me: MeDto) {
                     me = me,
                     active = route,
                     collapsed = collapsed,
+                    navOrder = vm.navOrder(me.username),
                     accountCount = vm.ui.accounts.size,
                     onToggleGroup = { g -> collapsed[g] = !(collapsed[g] ?: false) },
                     onGo = { go(it) },
+                    onCustomNav = { scope.launch { drawer.close() }; showNavCustom = true },
                     onPrefs = { scope.launch { drawer.close() }; showPrefs = true },
                     onAccounts = { scope.launch { drawer.close() }; showAccounts = true },
                     onLogout = { scope.launch { drawer.close() }; vm.logout() },
@@ -313,6 +317,7 @@ fun MainShell(vm: AppVm, me: MeDto) {
                         ScreenHost(
                             route, vm, me,
                             onPrefs = { showPrefs = true },
+                            onCustomNav = { showNavCustom = true },
                             onAccounts = { showAccounts = true },
                             setModuleBack = { moduleBackState.value = it },
                             go = { code -> go(code) },
@@ -330,6 +335,10 @@ fun MainShell(vm: AppVm, me: MeDto) {
 
     if (showPrefs) {
         PrefsSheet(vm, me, onClose = { showPrefs = false })
+    }
+
+    if (showNavCustom) {
+        NavCustomSheet(vm, me, onClose = { showNavCustom = false })
     }
 
     if (showAccounts) {
@@ -361,6 +370,7 @@ private fun ScreenHost(
     vm: AppVm,
     me: MeDto,
     onPrefs: () -> Unit,
+    onCustomNav: () -> Unit,
     onAccounts: () -> Unit,
     go: (String) -> Unit,
     setModuleBack: ((() -> Boolean)?) -> Unit = {},
@@ -381,6 +391,7 @@ private fun ScreenHost(
         "expense" -> ExpensesScreen(vm)
         "stats" -> StatsScreen(vm)
         "calc" -> CalculatorScreen(vm)
+        "health" -> HealthScreen(vm)
         "anniversary" -> AnniversaryScreen(vm)
         "board" -> BoardScreen(vm)
         "games" -> GamesScreen(vm, setModuleBack = setModuleBack)
@@ -403,6 +414,7 @@ private fun ScreenHost(
             vm = vm,
             themeLabel = vm.ui.theme.ifBlank { "默认" },
             onPrefs = onPrefs,
+            onCustomNav = onCustomNav,
             onNotify = { go("notify") },
             onExport = { go("export") },
             onAccounts = onAccounts,
@@ -422,15 +434,23 @@ private fun SidebarContent(
     me: MeDto,
     active: String,
     collapsed: MutableMap<String, Boolean>,
+    navOrder: List<String>,
     accountCount: Int,
     onToggleGroup: (String) -> Unit,
     onGo: (String) -> Unit,
+    onCustomNav: () -> Unit,
     onPrefs: () -> Unit,
     onAccounts: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val p = palette
-    val groups = me.nav.groupBy { it.group }
+    // 顺序表只决定「相对位置」：me.nav 是服务端下发的可见全集（权限 + 隐藏已过滤），
+    // 这里只重排、不增删 —— 没权限的项服务端根本没下发，用户怎么排都排不出来。
+    // 新模块（顺序表里还没有的 code）落到末尾，默认显示，不会出现「升级后侧栏少一块」。
+    val rank = navOrder.withIndex().associate { it.value to it.index }
+    val orderedNav = me.nav.sortedBy { rank[it.code] ?: Int.MAX_VALUE }
+    // groupBy 保序：组顺序 = 组内首项在顺序表里的位置，所以调组顺序也能生效。
+    val groups = orderedNav.groupBy { it.group }
 
     Column(Modifier.fillMaxHeight().statusBarsPadding()) {
         // 品牌 + 用户
@@ -488,6 +508,21 @@ private fun SidebarContent(
                 if (!isCollapsed) {
                     items.forEach { item -> NavRow(item, item.code == active) { onGo(item.code) } }
                 }
+            }
+            // 侧栏自定义入口：显隐 + 排序。放在导航列表最后，与分组同列、同宽。
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(chipShape())
+                    .clickable(onClick = onCustomNav)
+                    .padding(horizontal = 11.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(AppIcons["panel-left"], null, Modifier.size(18.dp), tint = p.textSub)
+                Spacer(Modifier.width(11.dp))
+                Text("自定义侧栏", fontSize = 14.sp, color = p.textSub, modifier = Modifier.weight(1f))
+                Icon(AppIcons["chevron-right"], null, Modifier.size(14.dp), tint = p.textWeak)
             }
             Spacer(Modifier.height(10.dp))
         }

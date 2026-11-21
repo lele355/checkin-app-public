@@ -521,4 +521,46 @@ object Repo {
 
     suspend fun version(): VersionDto = Api.get("/app/version")
     suspend fun changelog(): ChangelogDto = Api.get("/app/changelog")
+
+    // ---------- 健康（mi-health-bridge 接入，2026-11-21） ----------
+    suspend fun healthBindings(): List<HealthBindingDto> =
+        Api.get<HealthBindingsWrap>("/health/bindings", cache = false).items
+
+    suspend fun healthStartBind(): HealthQrDto = Api.post("/health/bindings/qr")
+
+    suspend fun healthBindStatus(id: Int): HealthBindStatusDto =
+        Api.get("/health/bindings/$id/status", cache = false)
+
+    suspend fun healthRename(id: Int, displayName: String?, ownerName: String?) {
+        Api.exec("PATCH", "/health/bindings/$id",
+            Api.json.encodeToString(HealthRenameReq.serializer(), HealthRenameReq(displayName, ownerName)))
+    }
+
+    suspend fun healthUnbind(id: Int) { Api.exec("DELETE", "/health/bindings/$id") }
+
+    suspend fun healthDaily(from: String, to: String, binding: Int? = null): HealthDailyWrap {
+        val b = binding?.let { "&binding=$it" } ?: ""
+        return Api.get("/health/daily?from=$from&to=$to$b", cache = false)
+    }
+
+    suspend fun healthSync() { Api.exec("POST", "/health/sync") }
+
+    suspend fun healthHourly(date: String, binding: Int? = null): HealthHourlyWrap {
+        val b = binding?.let { "&binding=$it" } ?: ""
+        return Api.get("/health/hourly?date=$date$b", cache = false)
+    }
+
+    suspend fun healthWeights(from: String, to: String): HealthWeightWrap =
+        Api.get("/health/weight?from=$from&to=$to", cache = false)
+
+    suspend fun healthWeightSave(date: String, weightKg: Double) {
+        Api.exec("POST", "/health/weight",
+            Api.json.encodeToString(HealthWeightReq.serializer(), HealthWeightReq(date, weightKg)))
+    }
 }
+
+@Serializable
+data class HealthRenameReq(val displayName: String? = null, val ownerName: String? = null)
+
+@Serializable
+data class HealthWeightReq(val date: String = "", val weightKg: Double = 0.0)

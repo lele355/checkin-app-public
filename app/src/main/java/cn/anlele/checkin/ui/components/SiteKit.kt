@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -131,17 +132,20 @@ fun PageHeadCard(
     }
 }
 
-/** 视图切换（列表 / 日历 / 卡片）—— 对应网页 `.view-switch` + `.vs-btn` */
+/** 视图切换（列表 / 日历 / 卡片）—— 对应网页 `.view-switch` + `.vs-btn`
+ *  各段等宽、文字居中；fullWidth=true 时整条撑满（放在页头副行用）。 */
 @Composable
 fun ViewSwitch(
     options: List<Pair<String, String>>,   // icon to label
     selected: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
+    fullWidth: Boolean = false,
 ) {
     val p = palette
+    val base = if (fullWidth) modifier.fillMaxWidth() else modifier
     Row(
-        modifier
+        base
             .clip(p.fieldShape())
             .background(p.cardSoft)
             .border(1.dp, p.borderStrong.copy(alpha = .35f), p.fieldShape())
@@ -151,19 +155,19 @@ fun ViewSwitch(
         options.forEach { (icon, label) ->
             val on = label == selected
             Row(
-                Modifier
+                (if (fullWidth) Modifier.weight(1f) else Modifier.widthIn(min = 72.dp))
                     .clip(RoundedCornerShape(maxOf(p.radiusField - 4.dp, 2.dp)))
                     .background(if (on) p.accent else Color.Transparent)
                     .clickable { onSelect(label) }
-                    .height(30.dp)
-                    .padding(horizontal = 10.dp),
+                    .height(30.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.Center,
             ) {
                 Icon(
                     AppIcons[icon], null, Modifier.size(14.dp),
                     tint = if (on) p.onAccent else p.textSub,
                 )
+                Spacer(Modifier.width(4.dp))
                 Text(
                     label,
                     fontSize = 12.5.sp,

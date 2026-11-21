@@ -1170,3 +1170,104 @@ data class GameLobbyDto(
 
 @Serializable
 data class GameCreateDto(val id: Int = 0, val code: String = "", val hostSide: Int = 1)
+
+// ==================== 健康模块（2026-11-21：mi-health-bridge 接入） ====================
+
+@Serializable
+data class HealthBindingDto(
+    val id: Int = 0,
+    val displayName: String = "",
+    val ownerName: String = "",
+    val miUserId: String = "",
+    val status: String = "pending",
+    val lastSyncAt: String? = null,
+    val lastSyncError: String = "",
+    val createdAt: String = "",
+)
+
+@Serializable
+data class HealthBindingsWrap(val items: List<HealthBindingDto> = emptyList())
+
+@Serializable
+data class HealthQrDto(
+    val id: Int = 0,
+    val bindingId: String = "",
+    val qrPng: String = "",
+    val loginUrl: String = "",
+    val expiresAt: String = "",
+)
+
+@Serializable
+data class HealthBindStatusDto(val status: String = "", val miUserId: String = "")
+
+@Serializable
+data class HealthDailyItem(
+    val date: String = "",
+    val bindingId: Int = 0,
+    val bindingName: String = "",
+    val steps: Int = 0,
+    val distanceM: Double = 0.0,
+    val caloriesTotal: Double = 0.0,
+    val caloriesActive: Double = 0.0,
+    val activityCount: Int = 0,
+    val activityMinutes: Int = 0,
+    val hrAvg: Double = 0.0,
+    val hrMax: Double = 0.0,
+    val hrMin: Double = 0.0,
+    val hrResting: Double = 0.0,
+    val spo2Avg: Double = 0.0,
+    val stressAvg: Double = 0.0,
+    val sleepMinutes: Int = 0,
+    val sleepScore: Double = 0.0,
+    val sleepStart: String? = null,
+    val sleepEnd: String? = null,
+    val sleepDeepMin: Int = 0,
+    val sleepLightMin: Int = 0,
+    val sleepRemMin: Int = 0,
+    val sleepAwakeMin: Int = 0,
+    val stressRelaxedMin: Int = 0,
+    val stressMildMin: Int = 0,
+    val stressModerateMin: Int = 0,
+    val stressSevereMin: Int = 0,
+    val weightKg: Double = 0.0,
+    val weightManual: Boolean = false,
+    val workoutCount: Int = 0,
+)
+
+@Serializable
+data class HealthTotals(
+    val steps: Long = 0,
+    val sleepMinutes: Int = 0,
+    val workouts: Int = 0,
+)
+
+@Serializable
+data class HealthDailyWrap(
+    val items: List<HealthDailyItem> = emptyList(),
+    val totals: HealthTotals = HealthTotals(),
+)
+
+@Serializable
+data class HealthHourlyItem(
+    val hour: Int = 0,
+    val bindingId: Int = 0,
+    val hrMin: Double = 0.0,
+    val hrMax: Double = 0.0,
+    val hrAvg: Double = 0.0,
+    val hrPoints: Int = 0,
+    val spo2Avg: Double = 0.0,
+    val spo2Points: Int = 0,
+)
+
+@Serializable
+data class HealthHourlyWrap(val items: List<HealthHourlyItem> = emptyList())
+
+@Serializable
+data class HealthWeightItem(
+    val date: String = "",
+    val weightKg: Double = 0.0,
+    val manual: Boolean = false,
+)
+
+@Serializable
+data class HealthWeightWrap(val items: List<HealthWeightItem> = emptyList())

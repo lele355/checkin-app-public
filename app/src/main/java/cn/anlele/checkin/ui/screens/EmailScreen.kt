@@ -137,6 +137,7 @@ fun EmailScreen(vm: AppVm) {
                 options = listOf("mail" to "收件箱", "settings-2" to "账号"),
                 selected = if (tab == 0) "收件箱" else "账号",
                 onSelect = { tab = if (it == "收件箱") 0 else 1 },
+                fullWidth = true,
             )
         }
         Row(

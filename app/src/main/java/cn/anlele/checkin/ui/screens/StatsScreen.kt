@@ -130,6 +130,7 @@ fun StatsScreen(vm: AppVm) {
                         options = listOf("overview" to "概览", "trend" to "趋势", "dist" to "分布"),
                         selected = view,
                         onSelect = { view = it },
+                        fullWidth = true,
                     )
                 },
             )

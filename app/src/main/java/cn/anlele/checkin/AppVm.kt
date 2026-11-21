@@ -293,6 +293,58 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---------------- 侧栏自定义 ----------------
+    //
+    // 显示/隐藏走服务端已有的 NavHidden（与网页端共用一份数据）—— 在 App 里藏掉的入口，
+    // 网页也一起藏；顺序走本机 SharedPreferences —— 服务端没有 order 字段，也不该为了
+    // 一个 App 的偏好去动数据库表。两条数据互不覆盖，所以怎么调都不会打架。
+    // 按账号隔离：情侣号/普通号的导航集本就不同，顺序串了反而乱。
+    private val navPrefs = app.getSharedPreferences("app_nav_custom", android.content.Context.MODE_PRIVATE)
+    private val navOrders = androidx.compose.runtime.mutableStateMapOf<String, List<String>>()
+
+    /** 当前账号的侧栏顺序（code 列表）。空 = 用服务端默认顺序。 */
+    fun navOrder(username: String): List<String> {
+        if (username !in navOrders) {
+            navOrders[username] = navPrefs.getString("order.$username", "").orEmpty()
+                .split('|').filter { it.isNotBlank() }.distinct()
+        }
+        return navOrders[username]!!
+    }
+
+    /** 保存侧栏顺序：只存 code 顺序串，去重保序。 */
+    fun setNavOrder(username: String, order: List<String>) {
+        val clean = order.filter { it.isNotBlank() }.distinct()
+        navPrefs.edit().putString("order.$username", clean.joinToString("|")).apply()
+        navOrders[username] = clean
+    }
+
+    /** 恢复默认顺序：清掉本机这个账号的排序记录（显隐另走服务端）。 */
+    fun resetNavOrder(username: String) {
+        navPrefs.edit().remove("order.$username").apply()
+        navOrders[username] = emptyList()
+    }
+
+    /**
+     * 保存侧栏显示/隐藏。只提交 navAll（服务端已按权限过滤的全集）里出现过的 code，
+     * 服务端另有一道全目录白名单，双保险。
+     *
+     * 情侣项按单个 code 处理：period 用 period.use、其余用 couples.view —— 面板数据源是
+     * navAll，没权限的账号根本看不到这些项，不会整组误开，也不会碰 CoupleScope 的互见边界。
+     */
+    fun saveNavHidden(hidden: List<String>) {
+        val me = ui.me ?: return
+        val allowed = me.navAll.map { it.code }.toSet()
+        val clean = hidden.filter { it in allowed }.distinct()
+        viewModelScope.launch {
+            runCatching { Repo.savePrefs(Repo.PrefsReq(navHidden = clean)) }
+                .onSuccess { fresh ->
+                    store.saveMe(fresh)
+                    ui = ui.copy(me = fresh, theme = fresh.theme, accent = fresh.accent, tone = fresh.tone)
+                }
+                .onFailure { toast("侧栏设置没能同步，联网后再试一次") }
+        }
+    }
+
     // ---------------- 资料 ----------------
 
     fun updateMe(me: MeDto) {
