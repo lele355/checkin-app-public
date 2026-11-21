@@ -35,6 +35,8 @@ object AppIcons {
         "chart" to "M3 3v16a2 2 0 0 0 2 2h16 M18 17V9 M13 17V5 M8 17v-3",
         // 饼图（Lucide pie-chart）：记账分类饼状视图用
         "pie-chart" to "M21.21 15.89A10 10 0 1 1 8 2.83 M22 12A10 10 0 0 0 12 2v10z",
+        // 计算器（Lucide calculator）
+        "calculator" to "M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z M8 6h8 M16 14v4 M16 10h.01 M12 10h.01 M8 10h.01 M12 14h.01 M8 14h.01 M12 18h.01 M8 18h.01",
         "download" to "M12 15V3 M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 m7 10 5 5 5-5",
         // 小游戏（Lucide gamepad-2）：左边十字键 + 右边两个按键
         "gamepad" to "M6 11H10 M8 9V13 M15 12h.01 M18 10h.01 M4 6H20A2 2 0 0 1 22 8V16A2 2 0 0 1 20 18H4A2 2 0 0 1 2 16V8A2 2 0 0 1 4 6Z",

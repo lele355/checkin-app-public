@@ -22,6 +22,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,6 +69,7 @@ import cn.anlele.checkin.data.Repo
 import cn.anlele.checkin.data.ScheduleDto
 import cn.anlele.checkin.ui.components.AppCard
 import cn.anlele.checkin.ui.components.AppChip
+import cn.anlele.checkin.ui.components.pressable
 import cn.anlele.checkin.ui.components.BannerBar
 import cn.anlele.checkin.ui.components.BannerTone
 import cn.anlele.checkin.ui.components.CardFoot
@@ -439,7 +448,7 @@ private fun availableCards(me: MeDto, d: DashboardDto?): List<String> = buildLis
 
 // ==================== 卡片与行 ====================
 
-/** 工作台卡片：emoji 标题 + 右上角图钉 + 内容 + 卡尾链接（对应网页 `.card > h2` + `.hint-foot`） */
+/** 工作台卡片：emoji 标题 + 右上角折叠/图钉 + 内容 + 卡尾链接（对应网页 `.card > h2` + `.hint-foot`） */
 @Composable
 private fun DashCard(
     emoji: String,
@@ -450,10 +459,15 @@ private fun DashCard(
     onTogglePin: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
+    // 折叠状态：这台手机的展示习惯，存本地 prefs（跨启动记忆）
+    val ctx = LocalContext.current
+    val foldPrefs = remember(ctx) { ctx.getSharedPreferences("dash_ui", android.content.Context.MODE_PRIVATE) }
+    var folded by remember { mutableStateOf(foldPrefs.getBoolean("fold_$title", false)) }
+
     AppCard(Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
         Column {
             Row(
-                Modifier.fillMaxWidth().clickable(onClick = onOpen),
+                Modifier.fillMaxWidth().pressable(onClick = onOpen),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(emoji, fontSize = 13.sp)
@@ -467,12 +481,48 @@ private fun DashCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                FoldButton(folded) {
+                    folded = !folded
+                    foldPrefs.edit().putBoolean("fold_$title", folded).apply()
+                }
                 if (onTogglePin != null) PinButton(pinned, onTogglePin)
             }
-            Spacer(Modifier.height(10.dp))
-            content()
-            if (foot != null) CardFoot(foot, onOpen)
+            AnimatedVisibility(
+                visible = !folded,
+                enter = expandVertically(tween(240)) + fadeIn(tween(220)),
+                exit = shrinkVertically(tween(200)) + fadeOut(tween(150)),
+            ) {
+                Column {
+                    Spacer(Modifier.height(10.dp))
+                    content()
+                    if (foot != null) CardFoot(foot, onOpen)
+                }
+            }
         }
+    }
+}
+
+/**
+ * 卡片折叠按钮：点一下收起/展开卡片内容，箭头转 90° 呼应状态。
+ * 状态存本地（fold_<标题>），下次打开 App 还是收着就收着。
+ */
+@Composable
+private fun FoldButton(folded: Boolean, onToggle: () -> Unit) {
+    val p = palette
+    val rot by animateFloatAsState(if (folded) -90f else 0f, tween(220), label = "fold")
+    Box(
+        Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onToggle),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            AppIcons["chevron-down"],
+            contentDescription = if (folded) "展开" else "收起",
+            modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = rot },
+            tint = p.textWeak.copy(alpha = .65f),
+        )
     }
 }
 

@@ -482,7 +482,22 @@ data class HeatDto(val date: String = "", val count: Int = 0)
 data class TopHabitDto(val name: String = "", val icon: String = "", val total: Int = 0)
 
 @Serializable
-data class MonthAmountDto(val label: String = "", val amount: Double = 0.0)
+data class MonthAmountDto(
+    val label: String = "",
+    val amount: Double = 0.0,
+    /** 近 6 月收入（趋势视图用；老服务端不返回 = 0） */
+    val `in`: Double = 0.0,
+    /** 近 6 月支出（与 amount 同值，字段名对齐服务端） */
+    val `out`: Double = 0.0,
+)
+
+/** 支出分类分布（饼图视图用） */
+@Serializable
+data class CategoryAmountDto(val name: String = "", val amount: Double = 0.0)
+
+/** 近 30 天每日收支（折线趋势用） */
+@Serializable
+data class DailyAmountDto(val date: String = "", val `out`: Double = 0.0, val `in`: Double = 0.0)
 
 @Serializable
 data class CountsDto(
@@ -502,6 +517,9 @@ data class StatsDto(
     val topHabits: List<TopHabitDto> = emptyList(),
     val months: List<MonthAmountDto> = emptyList(),
     val maxMonthOut: Double = 0.0,
+    val maxMonthIn: Double = 0.0,
+    val byCategory: List<CategoryAmountDto> = emptyList(),
+    val daily: List<DailyAmountDto> = emptyList(),
     val counts: CountsDto = CountsDto(),
 )
 

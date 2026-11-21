@@ -35,6 +35,9 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +65,7 @@ import cn.anlele.checkin.ui.screens.AccountSwitchSheet
 import cn.anlele.checkin.ui.screens.AnniversaryScreen
 import cn.anlele.checkin.ui.screens.AiScreen
 import cn.anlele.checkin.ui.screens.BoardScreen
+import cn.anlele.checkin.ui.screens.CalculatorScreen
 import cn.anlele.checkin.ui.screens.CoupleScreen
 import cn.anlele.checkin.ui.screens.CoursesScreen
 import cn.anlele.checkin.ui.screens.DashboardScreen
@@ -293,17 +297,27 @@ fun MainShell(vm: AppVm, me: MeDto) {
                         )
                     }
                 }
-                // 页面切换用 key(route) 直接换：侧栏切换本来就该是「立刻换掉」，
-                // 之前用 AnimatedContent 做滑动过渡，在低端机/软件渲染下会出现
-                // 「标题已经变了、内容还停在上一页」的鬼影，加了 key 才彻底解决。
+                // 页面切换：key(route) 保证旧页面立即消失，进场做「淡入 + 轻微上移」。
+                // 只动进场不动离场 —— 之前 AnimatedContent 双画面过渡在低端机/软件渲染下
+                // 出过「标题变了、内容还停在上一页」的鬼影；alpha/translationY 单层很便宜，不会。
                 key(route) {
-                    ScreenHost(
-                        route, vm, me,
-                        onPrefs = { showPrefs = true },
-                        onAccounts = { showAccounts = true },
-                        setModuleBack = { moduleBackState.value = it },
-                        go = { code -> go(code) },
-                    )
+                    var shown by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) { shown = true }
+                    val a by animateFloatAsState(if (shown) 1f else 0f, tween(220), label = "route-in")
+                    Box(
+                        Modifier.graphicsLayer {
+                            alpha = a
+                            translationY = (1f - a) * 14f
+                        }
+                    ) {
+                        ScreenHost(
+                            route, vm, me,
+                            onPrefs = { showPrefs = true },
+                            onAccounts = { showAccounts = true },
+                            setModuleBack = { moduleBackState.value = it },
+                            go = { code -> go(code) },
+                        )
+                    }
                 }
             }
         }
@@ -366,6 +380,7 @@ private fun ScreenHost(
         "courses" -> CoursesScreen(vm)
         "expense" -> ExpensesScreen(vm)
         "stats" -> StatsScreen(vm)
+        "calc" -> CalculatorScreen(vm)
         "anniversary" -> AnniversaryScreen(vm)
         "board" -> BoardScreen(vm)
         "games" -> GamesScreen(vm, setModuleBack = setModuleBack)
