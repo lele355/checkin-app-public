@@ -115,7 +115,15 @@ private fun CalcKey(
             .pressable(onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, fontSize = if (label.length > 2) 14.sp else 19.sp, color = fg, fontWeight = FontWeight.Medium)
+        Text(
+            label,
+            fontSize = when {
+                label.length > 4 -> 10.5.sp
+                label.length > 2 -> 13.sp
+                else -> 18.sp
+            },
+            color = fg, fontWeight = FontWeight.Medium,
+        )
     }
 }
 
@@ -236,19 +244,26 @@ private fun SimpleCalc() {
 
 // ==================== 科学计算器 ====================
 
-/** 表达式求值：显示输入串，= 用 CalcEngine 算 */
+/**
+ * 科学计算器：表达式求值，键位对齐卡西欧 82MS 的功能面 ——
+ * 三角/反三角/双曲、幂/开方（含 n 次方根）、阶乘/排列/组合、倒数/百分号、
+ * EXP 科学计数、Ans 上次结果、DEG/RAD 角度制切换。
+ */
 @Composable
 private fun ScienceCalc() {
     val p = palette
     var expr by remember { mutableStateOf("") }
     var result by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
+    var ans by remember { mutableStateOf(0.0) }
+    var deg by remember { mutableStateOf(true) }
 
     fun put(s: String) { expr += s; error = ""; result = "" }
     fun back() { expr = expr.dropLast(1); error = ""; result = "" }
     fun calc() {
         try {
-            val v = CalcEngine.eval(expr)
+            val v = CalcEngine.eval(expr, ans, deg)
+            ans = v
             result = CalcEngine.fmt(v)
             error = ""
         } catch (e: CalcEngine.CalcException) {
@@ -258,81 +273,120 @@ private fun ScienceCalc() {
         }
     }
 
-    AppCard(Modifier.fillMaxWidth(), PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
+    AppCard(Modifier.fillMaxWidth(), PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
         Column {
-            // 表达式显示（可横向滚动不折行）
-            val scroll = rememberScrollState()
-            Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) {
-                    if (expr.isEmpty()) {
-                        Text("输入表达式", fontSize = 15.sp, color = p.textWeak)
-                    }
-                    BasicTextField(
-                        value = expr,
-                        onValueChange = { expr = it.filter { c -> c.isLetterOrDigit() || c in "+-*/^%!.()×÷ π" }.take(80); error = ""; result = "" },
-                        singleLine = true,
-                        textStyle = androidx.compose.ui.text.TextStyle(
-                            fontSize = 19.sp, color = p.text, fontWeight = FontWeight.Medium,
-                        ),
-                        cursorBrush = SolidColor(p.accent),
-                        modifier = Modifier.fillMaxWidth().verticalScroll(scroll),
-                    )
+            // 角度制指示 + 上次结果（Ans）
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .clip(chipShape())
+                        .background(if (deg) p.accentSoft else p.cardSoft)
+                        .clickable { deg = !deg }
+                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                ) {
+                    Text(if (deg) "DEG" else "RAD", fontSize = 10.5.sp, color = p.textSub, fontWeight = FontWeight.Medium)
                 }
+                Spacer(Modifier.weight(1f))
+                Text("Ans = ${CalcEngine.fmt(ans)}", fontSize = 10.5.sp, color = p.textWeak, maxLines = 1)
             }
+            Spacer(Modifier.height(6.dp))
+            // 表达式（可编辑）
+            BasicTextField(
+                value = expr,
+                onValueChange = {
+                    expr = it.filter { c -> c.isLetterOrDigit() || c in "+-*/^%!.()×÷⁻¹VP" }.take(100)
+                    error = ""; result = ""
+                },
+                singleLine = true,
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    fontSize = 17.sp, color = p.text, fontWeight = FontWeight.Medium,
+                ),
+                cursorBrush = SolidColor(p.accent),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(4.dp))
             if (result.isNotBlank()) {
-                Text("= $result", fontSize = 22.sp, color = p.accentStrong, fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth())
+                Text(
+                    "= $result", fontSize = 22.sp, color = p.accentStrong, fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth(),
+                )
             }
             if (error.isNotBlank()) {
-                Text(error, fontSize = 12.sp, color = p.textWeak, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth())
+                Text(error, fontSize = 11.5.sp, color = p.textWeak, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth())
             }
             Spacer(Modifier.height(8.dp))
 
-            val pad = Arrangement.spacedBy(6.dp)
-            // 函数行
+            // 82MS 式键位：上半区科学函数（5 列），下半区数字键盘
+            val pad = Arrangement.spacedBy(5.dp)
             listOf(
-                listOf("sin", "cos", "tan", "π"),
-                listOf("ln", "log", "√", "^"),
-                listOf("(", ")", "e", "!"),
+                listOf("DEG", "Ans", "π", "e", "AC"),
+                listOf("sin", "cos", "tan", "(", ")"),
+                listOf("sin⁻¹", "cos⁻¹", "tan⁻¹", "ln", "log"),
+                listOf("sinh", "cosh", "tanh", "eˣ", "10ˣ"),
+                listOf("x²", "x³", "xʸ", "√", "∛"),
+                listOf("ⁿ√x", "1/x", "n!", "nPr", "nCr"),
             ).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = pad) {
                     row.forEach { k ->
                         CalcKey(k, Modifier.weight(1f), KeyKind.Fn) {
-                            put(
-                                when (k) {
-                                    "sin", "cos", "tan", "ln", "log" -> "$k("
-                                    "√" -> "sqrt("
-                                    "π" -> "pi"
-                                    "e" -> "e"
-                                    else -> k
-                                }
-                            )
+                            when (k) {
+                                "DEG" -> deg = !deg
+                                "Ans" -> put("Ans")
+                                "π" -> put("pi")
+                                "e" -> put("e")
+                                "AC" -> { expr = ""; result = ""; error = "" }
+                                "sin", "cos", "tan", "sinh", "cosh", "tanh", "ln", "log" -> put("$k(")
+                                "sin⁻¹" -> put("asin(")
+                                "cos⁻¹" -> put("acos(")
+                                "tan⁻¹" -> put("atan(")
+                                "eˣ" -> put("exp(")
+                                "10ˣ" -> put("10^(")
+                                "x²" -> put("^2")
+                                "x³" -> put("^3")
+                                "xʸ" -> put("^")
+                                "√" -> put("sqrt(")
+                                "∛" -> put("cbrt(")
+                                "ⁿ√x" -> put(" V ")       // a V b = a 的 b 次方根
+                                "1/x" -> put("⁻¹")
+                                "n!" -> put("!")
+                                "nPr" -> put(" P ")
+                                "nCr" -> put(" C ")
+                                else -> put(k)
+                            }
                         }
                     }
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(5.dp))
             }
-            // 数字 + 运算行
             listOf(
-                listOf("7", "8", "9", "÷"),
-                listOf("4", "5", "6", "×"),
-                listOf("1", "2", "3", "-"),
+                listOf("7", "8", "9", "÷", "DEL"),
+                listOf("4", "5", "6", "×", "AC"),
+                listOf("1", "2", "3", "−", "%"),
+                listOf("0", ".", "+", "EXP", "="),
             ).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = pad) {
                     row.forEach { k ->
-                        CalcKey(k, Modifier.weight(1f), if (k.length == 1 && k[0] in "+-×÷") KeyKind.Op else KeyKind.Num) {
-                            put(if (k == "×") "*" else if (k == "÷") "/" else k)
+                        val kind = when {
+                            k == "=" -> KeyKind.Op
+                            k in listOf("÷", "×", "−", "+") -> KeyKind.Op
+                            else -> KeyKind.Num
+                        }
+                        CalcKey(k, Modifier.weight(1f), kind) {
+                            when (k) {
+                                "DEL" -> back()
+                                "AC" -> { expr = ""; result = ""; error = "" }
+                                "=" -> calc()
+                                "EXP" -> put("×10^")
+                                "−" -> put("-")
+                                "÷" -> put("/")
+                                "×" -> put("*")
+                                "%" -> put("%")
+                                else -> put(k)
+                            }
                         }
                     }
                 }
-                Spacer(Modifier.height(6.dp))
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = pad) {
-                CalcKey("AC", Modifier.weight(1f), KeyKind.Fn) { expr = ""; result = ""; error = "" }
-                CalcKey("0", Modifier.weight(1f)) { put("0") }
-                CalcKey(".", Modifier.weight(1f)) { put(".") }
-                CalcKey("⌫", Modifier.weight(1f), KeyKind.Fn) { back() }
-                CalcKey("=", Modifier.weight(1f), KeyKind.Op) { calc() }
+                Spacer(Modifier.height(5.dp))
             }
         }
     }

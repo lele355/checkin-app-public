@@ -175,6 +175,8 @@ data class DashboardDto(
     val nextAnniv: AnnivCardDto? = null,
     val reminderCount: Int = 0,
     val todayCourses: List<CourseTodayDto> = emptyList(),
+    /** 课程卡日期标签：空 = 今天；非空 = 最近有课的那天（如 "11月23日 周一"，当日没课时顺延） */
+    val coursesLabel: String = "",
     val currentWeek: Int = 0,
     val semesterConfigured: Boolean = false,
     val mails: MailsCardDto? = null,

@@ -667,14 +667,20 @@ private fun HabitsCard(
 
 @Composable
 private fun CoursesCard(d: DashboardDto, pinned: Boolean, onTogglePin: () -> Unit, onOpen: () -> Unit) {
+    // 今日课程只显示「当前时间点及之后」（含正在上的）；当日没课就顺延到最近有课的一天（带日期标签）
+    val title = when {
+        d.coursesLabel.isNotBlank() -> "${d.coursesLabel} 的课"
+        d.currentWeek > 0 -> "今日课程 · 第 ${d.currentWeek} 周"
+        else -> "今日课程"
+    }
     DashCard(
         "📚",
-        if (d.currentWeek > 0) "今日课程 · 第 ${d.currentWeek} 周" else "今日课程",
+        title,
         if (d.semesterConfigured) "完整课程表 →" else "去设置学期起始日 →",
         onOpen, pinned, onTogglePin,
     ) {
         if (d.todayCourses.isEmpty()) {
-            SiteEmpty("🎒", if (d.semesterConfigured) "今天没有课" else "还没设置学期起始日")
+            SiteEmpty("🎒", if (d.semesterConfigured) "接下来 7 天都没有课" else "还没设置学期起始日")
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 d.todayCourses.forEach { c -> CourseLine(c) }
