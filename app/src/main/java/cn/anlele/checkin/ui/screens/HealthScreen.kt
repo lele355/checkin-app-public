@@ -167,29 +167,52 @@ fun HealthScreen(vm: AppVm) {
             }
         }
 
-        // ---- 近 7 天概览 ----
+        // ---- 近 7 天概览（迷你条对比：一眼看出起伏）----
         item {
             AppCard(Modifier.fillMaxWidth(), PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
                 Column {
                     Text("近 7 天", fontSize = 12.5.sp, color = p.textSub)
                     Spacer(Modifier.height(8.dp))
-                    val days = (6 downTo 0).map { LocalDate.now().minusDays(it.toLong()) }
-                    days.forEach { day ->
+                    val days7 = (6 downTo 0).map { LocalDate.now().minusDays(it.toLong()) }
+                    val maxSteps = days7.maxOf { d -> (byDate[d.toString()] ?: emptyList()).sumOf { it.steps } }.coerceAtLeast(1)
+                    val maxSleep = days7.maxOf { d -> (byDate[d.toString()] ?: emptyList()).sumOf { it.sleepMinutes } }.coerceAtLeast(1)
+                    days7.forEach { day ->
                         val rs = byDate[day.toString()] ?: emptyList()
-                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                            Text(day.toString().substring(5), fontSize = 11.sp, color = p.textWeak, modifier = Modifier.width(52.dp))
+                        val s = rs.sumOf { it.steps }
+                        val sl = rs.sumOf { it.sleepMinutes }
+                        val hr = rs.filter { it.hrAvg > 0 }.map { it.hrAvg }.average().takeIf { !it.isNaN() }
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                if (rs.isEmpty()) "—" else "%,d 步".format(rs.sumOf { it.steps }),
-                                fontSize = 12.sp, color = p.text, modifier = Modifier.width(78.dp),
+                                day.toString().substring(5), fontSize = 10.sp,
+                                color = if (day.toString() == today) p.accentStrong else p.textWeak,
+                                fontWeight = if (day.toString() == today) FontWeight.Medium else FontWeight.Normal,
+                                modifier = Modifier.width(38.dp),
                             )
+                            // 步数：迷你条 + 数值
+                            Column(Modifier.weight(1.15f)) {
+                                MiniBar(s.toFloat() / maxSteps, day.toString() == today)
+                                Spacer(Modifier.height(2.dp))
+                                Text("%,d".format(s), fontSize = 9.sp, color = p.textSub, maxLines = 1)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            // 睡眠：迷你条 + 时长
+                            Column(Modifier.weight(1.15f)) {
+                                MiniBar(sl.toFloat() / maxSleep, day.toString() == today)
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    if (sl > 0) "${sl / 60}时${sl % 60}分" else "—",
+                                    fontSize = 9.sp, color = p.textSub, maxLines = 1,
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            // 心率：数值 + 小点阵
                             Text(
-                                rs.sumOf { it.sleepMinutes }.let { if (it > 0) "睡 ${it / 60}时${it % 60}分" else "睡 —" },
-                                fontSize = 11.5.sp, color = p.textSub, modifier = Modifier.width(96.dp),
-                            )
-                            Text(
-                                rs.filter { x -> x.hrAvg > 0 }.map { x -> x.hrAvg }.average()
-                                    .takeIf { !it.isNaN() }?.let { "心率 ${it.toInt()}" } ?: "心率 —",
-                                fontSize = 11.5.sp, color = p.textSub,
+                                hr?.toInt()?.let { "♥ $it" } ?: "♥ —",
+                                fontSize = 10.sp, color = p.textSub, modifier = Modifier.width(50.dp),
+                                textAlign = TextAlign.End, maxLines = 1,
                             )
                         }
                     }
@@ -349,47 +372,53 @@ private fun HealthDetail(
                 item {
                     AppCard(Modifier.fillMaxWidth(), PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
                         Column {
-                            Text("近 7 天", fontSize = 12.5.sp, color = p.textSub)
-                            Spacer(Modifier.height(8.dp))
+                            Text("近 7 天睡眠时间轴", fontSize = 12.5.sp, color = p.textSub)
+                            Spacer(Modifier.height(4.dp))
+                            Text("条长 = 总时长 · 左端 = 入睡 · 右端 = 醒来", fontSize = 9.5.sp, color = p.textWeak)
+                            Spacer(Modifier.height(10.dp))
+                            // 时间轴刻度：18时 → 12时（次日）
+                            Row(Modifier.fillMaxWidth().padding(start = 42.dp)) {
+                                Text("18时", fontSize = 8.sp, color = p.textWeak)
+                                Spacer(Modifier.weight(1f))
+                                Text("0时", fontSize = 8.sp, color = p.textWeak)
+                                Spacer(Modifier.weight(1f))
+                                Text("6时", fontSize = 8.sp, color = p.textWeak)
+                                Spacer(Modifier.weight(1f))
+                                Text("12时", fontSize = 8.sp, color = p.textWeak)
+                            }
+                            Spacer(Modifier.height(6.dp))
                             days.takeLast(7).reversed().forEach { d ->
                                 val rs = byDate[d.toString()] ?: emptyList()
-                                val deep = rs.sumOf { it.sleepDeepMin }
-                                val light = rs.sumOf { it.sleepLightMin }
-                                val rem = rs.sumOf { it.sleepRemMin }
-                                val awake = rs.sumOf { it.sleepAwakeMin }
-                                val total = (deep + light + rem + awake).coerceAtLeast(1)
                                 val s = rs.mapNotNull { it.sleepStart }.firstOrNull()
                                 val e = rs.mapNotNull { it.sleepEnd }.firstOrNull()
-                                Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                                    Row {
-                                        Text(d.toString().substring(5), fontSize = 10.5.sp, color = p.textWeak, modifier = Modifier.width(44.dp))
+                                val mins = rs.sumOf { it.sleepMinutes }
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        d.toString().substring(5), fontSize = 9.5.sp,
+                                        color = if (d.toString() == today) p.accentStrong else p.textWeak,
+                                        modifier = Modifier.width(36.dp),
+                                    )
+                                    SleepTimelineBar(
+                                        bedPos = clockPos(s), wakePos = clockPos(e),
+                                        filled = s != null && e != null,
+                                        isToday = d.toString() == today,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.width(74.dp)) {
                                         Text(
-                                            if (deep + light + rem > 0) "${(deep + light + rem) / 60}时${(deep + light + rem) % 60}分" else "—",
-                                            fontSize = 12.sp, color = p.text, modifier = Modifier.width(72.dp),
+                                            if (mins > 0) "${mins / 60}时${mins % 60}分" else "—",
+                                            fontSize = 10.5.sp, color = p.text, maxLines = 1,
                                         )
                                         Text(
                                             if (s != null && e != null) "$s ~ $e" else "",
-                                            fontSize = 10.5.sp, color = p.textWeak,
+                                            fontSize = 8.sp, color = p.textWeak, maxLines = 1,
                                         )
                                     }
-                                    Spacer(Modifier.height(4.dp))
-                                    Row(
-                                        Modifier.fillMaxWidth().height(10.dp)
-                                            .clip(RoundedCornerShape(5.dp)),
-                                    ) {
-                                        if (deep + light + rem + awake > 0) {
-                                            StageSeg(deep, total, p.accent)
-                                            StageSeg(light, total, p.accentSoft)
-                                            StageSeg(rem, total, p.cardSoft)
-                                            StageSeg(awake, total, p.textWeak.copy(alpha = .4f))
-                                        }
-                                    }
                                 }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                LegendDot(p.accent, "深睡"); LegendDot(p.accentSoft, "浅睡")
-                                LegendDot(p.cardSoft, "REM"); LegendDot(p.textWeak.copy(alpha = .4f), "清醒")
                             }
                         }
                     }
@@ -671,6 +700,69 @@ private fun HrCurveCard(todayRows: List<HealthDailyItem>, filter: Int) {
                 Text("23时", fontSize = 8.sp, color = p.textWeak)
             }
         }
+    }
+}
+
+/** "HH:mm" → 时间轴位置（0=18:00，1=次日12:00；轴长 18 小时） */
+private fun clockPos(time: String?): Float {
+    if (time == null) return 0f
+    val parts = time.split(":")
+    if (parts.size != 2) return 0f
+    val hh = parts[0].toIntOrNull() ?: return 0f
+    val mm = parts[1].toIntOrNull() ?: return 0f
+    val min = ((hh * 60 + mm) - 18 * 60 + 24 * 60) % (24 * 60)   // 从 18:00 起算（跨午夜）
+    return (min.toFloat() / (18f * 60f)).coerceIn(0f, 1f)
+}
+
+/** 睡眠时间轴横条：左端入睡、右端醒来 */
+@Composable
+private fun SleepTimelineBar(
+    bedPos: Float, wakePos: Float, filled: Boolean,
+    isToday: Boolean, modifier: Modifier = Modifier,
+) {
+    val p = palette
+    Box(modifier.height(14.dp)) {
+        // 轨道
+        Box(
+            Modifier.fillMaxWidth().height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(p.cardSoft),
+        )
+        if (filled) {
+            val a = minOf(bedPos, wakePos).coerceIn(0f, 1f)
+            val b = maxOf(bedPos, wakePos).coerceIn(0f, 1f)
+            // 区间条：Canvas 画任意区间 + 端点
+            androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(14.dp)) {
+                val w = size.width
+                val y = size.height / 2f - 3.dp.toPx()
+                drawRoundRect(
+                    color = if (isToday) p.accent else p.accentSoft,
+                    topLeft = Offset(w * a, y),
+                    size = androidx.compose.ui.geometry.Size((w * (b - a)).coerceAtLeast(4f), 6.dp.toPx()),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
+                )
+                // 入睡/醒来端点
+                drawCircle(p.accentStrong, radius = 3.dp.toPx(), center = Offset(w * a, y + 3.dp.toPx()))
+                drawCircle(p.accentStrong, radius = 3.dp.toPx(), center = Offset(w * b, y + 3.dp.toPx()))
+            }
+        }
+    }
+}
+
+/** 迷你进度条（首页近 7 天对比用） */
+@Composable
+private fun MiniBar(ratio: Float, today: Boolean) {
+    val p = palette
+    Box(
+        Modifier.fillMaxWidth().height(5.dp)
+            .clip(RoundedCornerShape(2.5.dp))
+            .background(p.cardSoft),
+    ) {
+        Box(
+            Modifier.fillMaxWidth(ratio.coerceIn(0f, 1f)).height(5.dp)
+                .clip(RoundedCornerShape(2.5.dp))
+                .background(if (today) p.accent else p.accentSoft),
+        )
     }
 }
 
